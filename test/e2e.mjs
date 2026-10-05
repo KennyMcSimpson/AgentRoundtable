@@ -132,7 +132,9 @@ async function main() {
   check('B wait again -> same TURN still open', r.code === 0 && attemptOf(r.out) === b2);
 
   // --- crash the service mid-attempt, restart, submit must still be accepted ---
-  serviceProc.kill();
+  // SIGKILL: a crash. On Windows any kill() is TerminateProcess; on POSIX the default SIGTERM is a
+  // clean stop (the service's handler removes service.lock), which is not what this step simulates.
+  serviceProc.kill('SIGKILL');
   await sleep(400);
   check('crash leaves lock with dead pid', fs.existsSync(path.join(roomDir, 'service.lock')));
   startService();
@@ -353,7 +355,7 @@ async function governedRoom() {
   speak('B', w4.aid, 'b-work-4.md', '第 4 轮没有新改动。');
   const a4 = turn('A');
   check('room3 r4: A holds a Meet attempt before the crash', !!a4.aid);
-  svc3.kill();
+  svc3.kill('SIGKILL'); // a crash, as above
   await until(() => svc3.exitCode !== null || svc3.signalCode !== null, 5000);
   start3();
   const nr = await until(() => lastOf('needs_reconcile', (e) => e.attemptId === a4.aid), 10000);
