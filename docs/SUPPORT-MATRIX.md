@@ -67,7 +67,7 @@ room-dev 可以被别的程序在进程内嵌入（`lib/api.mjs`，见 `docs/INT
 
 | 席位 | 登记方式 | 真实宿主应用里 | 已测到的范围 |
 |---|---|---|---|
-| 宿主自己的对话会话 | `agent pi-user`，`wait turn_over`，宿主注入的唤醒种类（`wake-kind`，例如 `pi-session`） | 未验证 | 本仓库的进程内测试（`test/api.test.mjs`、`test/service.test.mjs`）：注入的唤醒函数每回合至多调用一次、文案固定且不含房间内容。一个私有宿主在纯 Node 下跑过它自己的集成链路，记录不在本仓库 |
+| 宿主自己的对话会话 | `agent pi-user`，`wait turn_over`，`--surface tool:<宿主给模型看的工具名>`，宿主注入的唤醒种类（`wake-kind`，例如 `pi-session`） | 未验证 | 本仓库的进程内测试（`test/api.test.mjs`、`test/service.test.mjs`）：注入的唤醒函数每回合至多调用一次、文案固定且不含房间内容。一个私有宿主在纯 Node 下跑过它自己的集成链路，记录不在本仓库 |
 | 宿主的执行通道 | `hosted lane:<通道>:discussion`，宿主注入通道工厂（`hostedProviders`） | 未验证 | 进程内测试用假的通道工厂；失败分类映射有单元测试。真实通道没有调用过 |
 
 两行都不是「已验证」：本表的已验证要求在真实 agent 上跑过，而这里只有纯 Node 下的测试，没有真实宿主应用，也没有真实模型参与。审计列对通道席位恒为「未审计」：通道自己的工具不受 room-dev 权限档位约束，所以首版只开讨论档。

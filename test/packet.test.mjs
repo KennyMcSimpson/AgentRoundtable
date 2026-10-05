@@ -8,8 +8,14 @@ import {
   escapeMarkers, block, renderPacket, renderFarewell, loadTemplates, lintTemplate, fillTemplate,
   templateHashOf, TEMPLATE_NAMES, TEMPLATE_VARS, RENDER_VERSION,
 } from '../lib/packet.mjs';
+import { AGENT_KIND_NAMES } from '../lib/join.mjs';
+import { malformedFollowUp } from '../lib/structured.mjs';
+import { seatSurface, surfaceLine, SURFACE_LINES, SURFACE_HASH } from '../lib/surface.mjs';
 
 const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
+const WIN = process.platform === 'win32';
+// A command line, a seat-command flag or an unfilled placeholder: none may reach a tool or hosted seat.
+const CLI_LEAK = /room\.mjs|room\.cmd|--(?:seat|attempt|file|declare|seq|text|item|status|artifact|arg|argv-file|reason|log|baseline|exclude)\b|子命令|\{\{/;
 const NONCE = 'abcd1234';
 const ROOM_CMD = 'node D:/tools/room-dev/room.mjs';
 // The fixture's paths are Windows-absolute; the packet shows every path through fwd(), which resolves
@@ -450,4 +456,132 @@ test('renderFarewell: rules end, peer content not user instruction, no memory; m
   assert.equal(custom.manifest.packetId, 'fw-1');
   assert.ok(custom.text.includes('发给席位 A 的最后一个包'));
   assert.throws(() => renderFarewell({ room: f.room }), /required/);
+});
+
+// --------------------------------------------------------------- seat surfaces (lib/surface.mjs)
+
+// Every packet kind a seat can get, for the four roles: one per phase, the opening meet, the
+// farewell, a budget-trimmed packet and one with every optional block (notices, summary, follow-up
+// material, artifacts, user message). seatOver is spread over each seat.
+function surfaceMatrix(seatOver = {}) {
+  const base = fixture();
+  const P = { seatId: 'P', name: '参与丙', role: 'participant', waitMode: 'manual', cwd: 'E:/probe/p', declaredTier: 'discussion', audit: null };
+  const seats = { A: base.room.seats[0], B: base.room.seats[1], L: base.room.seats[2], P };
+  const out = {};
+  for (const [id, s] of Object.entries(seats)) {
+    const seat = { ...s, ...seatOver };
+    for (const phase of ['assign', 'work', 'meet', 'summary']) {
+      const f = fixture();
+      out[`${id}/${phase}`] = renderPacket({ ...f, seat,
+        attempt: { ...f.attempt, phase, ...(phase === 'work' ? { turnTask: '实现 parser 的 --strict | 验收: ["node","--test","parser.test.mjs"]' } : {}) },
+        ...(phase === 'summary' ? { items: [{ itemId: 'm2', seatId: 'A', seq: 2, text: '不要动 cli.mjs' }] } : {}) });
+    }
+    const g = fixture(); g.state.messages = [];
+    out[`${id}/meet-open`] = renderPacket({ ...g, seat });
+    out[`${id}/farewell`] = renderFarewell({ room: g.room, seat, nonce: 'f00dcafe', roomCmd: ROOM_CMD });
+  }
+  const big = (n) => `消息 ${n} ` + 'x'.repeat(2000);
+  const b = fixture(); b.state.roundId = 3;
+  b.state.messages = [2, 3, 4, 5, 6, 7].map((n) => ({ seq: n, seatId: n % 2 ? 'B' : 'A', text: big(n), sha256: sha(big(n)), roundId: n < 4 ? 1 : n < 6 ? 2 : 3 }));
+  out['B/budget'] = renderPacket({ ...b, seat: { ...b.seat, ...seatOver }, room: { ...b.room, budget: { packetMaxBytes: 1 } } });
+  const n = fixture(); const reviewer = { ...n.room.seats[0], ...seatOver };
+  out['A/extras'] = renderPacket({ ...n, seat: reviewer, supersededNotice: { oldVersion: 1, newVersion: 2 }, voidNotice: { attemptId: 'a1-2-old111' },
+    summary: { version: 2, seatId: 'L', seq: 5, text: '决议：先做 parser。' },
+    materials: [{ id: 'room-followup', version: 1, text: malformedFollowUp({ reasons: [{ code: 'verdict_missing', text: '本回合要求给出 verdict，但没有找到有效的 verdict' }], attemptId: 'a1-2-prev00', retriesLeft: 1, resubmit: surfaceLine(seatSurface(reviewer), 'resubmit') }) }],
+    artifacts: [{ seatId: 'B', manifestSha: 'a'.repeat(64), fileCount: 3, bytes: 1200 }], userMessages: [{ seq: 10, text: '改成先做 CLI。' }] });
+  return out;
+}
+
+// sha256 of each CLI text, measured at 656648b (before seat surfaces) on win32.
+const CLI_PACKET_SNAPSHOTS = {
+  'A/assign': 'c20e37bbbb1d96443b6ed3f56f63ddacefb9ab17bebfadbc2545b8a2f94fba65', 'A/work': '6a627592b169438f57d0dc59058a4544d25ae09bb7be35228c26c4e09bace4c4',
+  'A/meet': '39588d6750d5fcabe4f0a41f59240a688653377bfad416f303b48ac6854ebef2', 'A/summary': '6039df64bc6c5f310c2be4655b64e9c461bc29d6eb04695d9f5702aa16f5873b',
+  'A/meet-open': 'ab7feb1e9daaf1f07908d24a1f6434f58233b37a7b8569fc5031a784c14c9d5d', 'A/farewell': '06fa416da1c0809363b216165e77a93569631cac1a545e9d3b5fea73feeee0b9',
+  'B/assign': '0a53f6a0df6f2a63b2f2c2c479685a22f2f646bd784409ea0c8fee8f03131031', 'B/work': '830648b57089e93fba46a13a3cb9155ce2e8528c79af4496105171358eeb67db',
+  'B/meet': '425907770dd89084baf24e9a268b16c0e528f597007abefd2bc05ff1b0096342', 'B/summary': '92f3b63071ae83207c0f45892e7d29ffb765e0ff3536c6075903e41ffd9b5e6e',
+  'B/meet-open': '5759f54fa84f18febeaf5444e4048c01b03f5b68f7f5bded742aaa9ea45aa099', 'B/farewell': 'a555d25209931940d44e77236eeb2fc92b11e58b6b0500c68260a9e2d1239842',
+  'L/assign': '25b9c53f4f616a614e012dd896c899318284aead094de54b21ffb385ea9992d8', 'L/work': '47fcda7f7a6d454c4b995588f2a012e47ede166420897e5391368b78233ba813',
+  'L/meet': 'cfe048edb766b17e6d48cb9c701d4251e8f55e9f572cae5aa9ff9222657e02ca', 'L/summary': 'd0473930dcff7ad2d212fb4e9d1f31d1109409bb6313823e55c7261ea1459801',
+  'L/meet-open': '44726266c1e68c3714aada7cc1fba2c591300103e77c9254787280e140c359a4', 'L/farewell': 'e0207a8dcda724e3d29ed0e014f66c3f6c49f7ceca6b8084e4b8e9b0c9ea180b',
+  'P/assign': 'fc8a8ffb7d2c7ee6f4702b791e6e57c0a33c810c9fcd84fb2007093fe4a22f5c', 'P/work': '0d2e7ac083c1d72cd7212e62faecb869bbd37ae3baa53dfbc0890027acff6d02',
+  'P/meet': '397855aeea559d88bd47aae3c09b82a346af1b2fd503f37df4af8460fdd170e6', 'P/summary': '000996fabb4dfa2e62a8beaf2b38dab326cdd52c92c892e80c78b8cca5efcc6c',
+  'P/meet-open': 'bae3d4c51a77dcebbed24c4594292187efbe51d0bc6ca477f971ffa1f8868d2d', 'P/farewell': 'a2c529f122dc623449b72cfd1a6369042756f8346ed2d8011688cf9d307ad90a',
+  'B/budget': 'f932597a69b8bb912369d8680a9430a6c002669c1981f16ab68ca6bff6618d96', 'A/extras': 'c9e8041b113064d0fb73aa4ab486004bc07eeb9caa15d06c386932b66c443e61',
+};
+
+test('CLI packets, farewells and manifests are byte-identical to 656648b', () => {
+  assert.equal(loadTemplates().templateHash, 'fe17dee3b83d291f282b9832cdd5ce6aeec665aba37ea7c0fe1e55c4e766611e',
+    'templates changed: re-check every lib/surface.mjs prefix for the changed command lines, then update this hash');
+  const cli = surfaceMatrix();
+  assert.deepEqual(Object.keys(cli), Object.keys(CLI_PACKET_SNAPSHOTS));
+  // The fixture's Windows paths go through fwd(), so the bytes are pinned on Windows only (as JOIN_SNAPSHOTS).
+  if (WIN) for (const [k, r] of Object.entries(cli)) assert.equal(sha(r.text), CLI_PACKET_SNAPSHOTS[k], `${k} snapshot`);
+  assert.deepEqual(Object.keys(cli['B/meet'].manifest), ['packetId', 'seatId', 'attemptId', 'roundId', 'epoch', 'phase', 'nonce', 'sha256', 'bytes', 'messageSeqs',
+    'seatMessageSeqs', 'userMessageSeqs', 'summaryVersion', 'materialVersions', 'templateHash', 'renderVersion', 'declaredTier', 'auditSource', 'hostOutputLimit',
+    'escaped', 'prevManifestId', 'dropped', 'blocks', 'itemIds', 'voidedAttemptId', 'supersededNotice']);
+  assert.deepEqual(Object.keys(cli['B/farewell'].manifest), ['packetId', 'seatId', 'attemptId', 'kind', 'nonce', 'sha256', 'bytes', 'messageSeqs', 'summaryVersion',
+    'materialVersions', 'templateHash', 'renderVersion', 'declaredTier', 'auditSource', 'hostOutputLimit', 'escaped', 'prevManifestId', 'dropped', 'blocks']);
+  assert.equal(cli['B/meet'].manifest.renderVersion, 2);
+  // OS-independent: no agent kind, and no cli or malformed surface field, changes a CLI seat's text.
+  for (const over of [...AGENT_KIND_NAMES.map((agent) => ({ agent })), { surface: { kind: 'cli' } }, { surface: { kind: 'tool', tool: '1bad' } }]) {
+    const m = surfaceMatrix(over);
+    for (const k of Object.keys(cli)) assert.equal(m[k].text, cli[k].text, `${JSON.stringify(over)} ${k}`);
+  }
+});
+
+test('tool seats: packets and farewells name only Room tool calls; manifests carry the surface', () => {
+  const m = surfaceMatrix({ agent: 'pi-user', surface: { kind: 'tool', tool: 'plugin_x_Room' } });
+  for (const [k, r] of Object.entries(m)) {
+    assert.doesNotMatch(r.text, CLI_LEAK, k);
+    assert.equal(r.manifest.surface, 'tool', k);
+    assert.equal(r.manifest.surfaceHash, SURFACE_HASH.tool, k);
+    if (k.endsWith('/farewell')) {
+      assert.ok(r.text.includes('房间工具 plugin_x_Room 对这个房间的席位动作只会返回 ROOM_CLOSED'), k);
+      continue;
+    }
+    assert.ok(r.text.includes('plugin_x_Room（下称房间工具）'), k);
+    assert.ok(r.text.includes('"action":"submit","room":"p2","attempt":"a1-2-ff00aa"'), k);
+    assert.ok(r.text.includes('交卷：调用房间工具 {"action":"submit","room":"p2","attempt":"a1-2-ff00aa","text":"<你的发言全文>"}，发言直接放进 text，不用写文件。'), k);
+  }
+  assert.ok(m['B/budget'].text.includes(SURFACE_LINES.tool.dropped));
+  assert.ok(m['A/extras'].text.includes(SURFACE_LINES.tool.resubmit));
+  assert.ok(!m['A/extras'].text.includes('room 子命令'));
+  assert.ok(m['B/meet'].text.includes('质疑用 point 进条目表；没有新增意见用 pass。审方在这一回合对冻结产物给出 verdict。'));
+  assert.ok(m['P/meet'].text.includes('对前文的异议用房间工具 {"action":"point","room":"p2","attempt":"a1-2-ff00aa","seq":N,"text":"..."} 提出，它会进入待回应条目表；没有新增意见就调用房间工具 {"action":"pass","room":"p2","attempt":"a1-2-ff00aa"}。'));
+});
+
+test('hosted seats (built-in Pi and a lane): packets name only ASCII markers in the reply', () => {
+  for (const hosted of [{ kind: 'lane', lane: 'pi-complete', tier: 'discussion' }, { kind: 'pi', tier: 'exec' }]) {
+    const m = surfaceMatrix({ hosted });
+    for (const [k, r] of Object.entries(m)) {
+      assert.doesNotMatch(r.text, CLI_LEAK, `${hosted.kind} ${k}`);
+      assert.ok(!r.text.includes('房间工具'), `${hosted.kind} ${k}`);
+      assert.equal(r.manifest.surface, 'hosted', k);
+      assert.equal(r.manifest.surfaceHash, SURFACE_HASH.hosted, k);
+      if (k.endsWith('/farewell')) {
+        // # header, blank line, block head, farewell L1, farewell L2
+        assert.equal(r.text.split('\n')[4], '从现在起房间规则失效：不再有回合、不再接受提交，房间不会再给本席位发包。', `farewell L2 ${k}`);
+        continue;
+      }
+      assert.ok(r.text.includes('<<ROOM:PASS>>'), k);
+      assert.ok(r.text.includes('交卷方式：本席位由房间托管'), k);
+      // The room sets a hosted seat's permissions, and it never waits.
+      assert.ok(r.text.includes('权限：本席位由房间托管，房间按建席时给本席位定的托管档位运行它'), k);
+      assert.ok(!r.text.includes('你声明的权限档位：') && !r.text.includes('你的权限由你自己的设置决定'), k);
+    }
+    assert.ok(m['A/meet'].text.includes('审查结论写在回复正文里：<<ROOM:VERDICT pass artifact=<清单sha>>>理由<<ROOM:END>>'));
+    assert.ok(m['B/work'].text.includes('本轮 Work 会记 no_artifact'));
+    assert.ok(m['B/budget'].text.includes(SURFACE_LINES.hosted.dropped));
+    assert.ok(m['A/extras'].text.includes(SURFACE_LINES.hosted.resubmit));
+  }
+});
+
+test('surfaces: a template override line naming {{roomCmd}} reaches CLI seats only', () => {
+  const T = loadTemplates().templates;
+  const templates = loadTemplates({ overrides: { 'phase-meet': T['phase-meet'] + '\n额外：{{roomCmd}} point --seat {{seatDir}}' } });
+  const f = fixture();
+  const meet = (over) => renderPacket({ ...f, seat: { ...f.seat, ...over }, templates }).text;
+  assert.ok(meet({}).includes('point --seat'));
+  assert.ok(!meet({ surface: { kind: 'tool', tool: 'plugin_x_Room' } }).includes('point --seat'));
+  assert.ok(!meet({ hosted: { kind: 'pi', tier: 'discussion' } }).includes('point --seat'));
 });

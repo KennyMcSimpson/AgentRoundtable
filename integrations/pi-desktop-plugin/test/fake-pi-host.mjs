@@ -39,6 +39,17 @@
 //              once the call returns, every pi.* call made from them is rejected.
 //     660      every other parent call (panel.invoke, command.run, service.start / stop, unload)
 //              runs under invocationContext.run(undefined, ...).
+//   Host events and the locale (pi.events, pi.app.getLocale):
+//     plugin-host-process.mjs 438-449 events.on/off is a local listener map (no broker call);
+//              453-472 handleHostEvent calls each listener in a try/catch; 635-638 the parent's
+//              {t:'event'} frames are dispatched from the port, outside any tool invocation.
+//     plugin-runtime.ts 1728-1731 broadcastEvent posts to every loaded child, no permission check;
+//              4706-4713 getLocale / getAppearance answer with the host's current locale.
+//     bootstrap/main-state.ts 83 the locale starts as "en"; startup.ts 286 bootBackends restores
+//              the enabled plugins (onLoad, startServices) BEFORE 314-322 apply the stored
+//              settings; app-lifecycle.ts 584-598 sets the locale and 652-658 broadcasts
+//              appearance:changed (the signature starts as "", main-state.ts 86, so boot broadcasts).
+//              A Settings write (settings-ipc.ts 111) goes the same way.
 //   apps/desktop/electron/main/services/session-collaboration.ts 107-114: send/spawn refuse
 //     without an active tool invocation; desktop.invoke itself needs desktop.control (4955).
 import fs from 'node:fs';
@@ -71,13 +82,17 @@ function allowedExternalUrl(raw) {
   return null;
 }
 
-// startFakeHost({pluginDir, dataDir, grant?, locale?, complete?}) -> host
-//   grant:    permissions the user granted (default: everything the manifest asks for)
-//   complete: async (input) => {text, modelKey, usage?} standing in for the host's model call
-export async function startFakeHost({ pluginDir, dataDir, grant, locale = 'en-US', complete } = {}) {
+// startFakeHost({pluginDir, dataDir, grant?, locale?, bootLocale?, complete?}) -> host
+//   grant:      permissions the user granted (default: everything the manifest asks for)
+//   locale:     the host language (the user's setting)
+//   bootLocale: when given, the plugin is restored at boot: the host reports bootLocale during
+//               onLoad and the service start, then applies `locale` and broadcasts
+//               appearance:changed. Without it, the plugin is enabled after boot: `locale` from the start.
+//   complete:   async (input) => {text, modelKey, usage?} standing in for the host's model call
+export async function startFakeHost({ pluginDir, dataDir, grant, locale = 'en-US', bootLocale, complete } = {}) {
   const manifest = JSON.parse(fs.readFileSync(path.join(pluginDir, 'manifest.json'), 'utf8'));
   const permissions = new Set(grant || manifest.permissions || []);
-  const calls = [];             // every pi.* call the plugin made: {api, args}
+  const calls = [];             // every pi.* call the plugin made: {api, args, result?}
   const tools = new Map();      // name -> {descriptor (as forwarded), execute}
   const commands = new Map();   // id -> {descriptor, run}
   const services = new Map();   // id -> {start, stop, running}
@@ -87,6 +102,11 @@ export async function startFakeHost({ pluginDir, dataDir, grant, locale = 'en-US
   const serviceLog = [];        // lines the service wrote through its start ctx.log
   let completeWindow = null;
   let panelOpen = 0;
+  let currentLocale = bootLocale === undefined ? locale : bootLocale;
+  let localeError = null;        // set by failGetLocale: getLocale rejects with it
+  const eventListeners = new Map(); // event -> Set<handler>
+  const eventErrors = [];        // listeners that threw: {event, message}
+  const appearance = () => ({ theme: 'system', base: 'system', locale: currentLocale, pluginTheme: null });
 
   const aborted = [];            // pi.* calls refused because their tool invocation had finished: {api}
   const invocationContext = new AsyncLocalStorage();
@@ -94,17 +114,18 @@ export async function startFakeHost({ pluginDir, dataDir, grant, locale = 'en-US
   let nextInvocation = 0;
 
   const need = (perm) => { if (!permissions.has(perm)) throw apiError('PERMISSION_DENIED', `missing permission: ${perm}`); };
-  const record = (api, args) => { calls.push({ api, args }); };
+  const record = (api, args) => { const c = { api, args }; calls.push(c); return c; };
   // call() (plugin-host-process.mjs 54-69): refused when the async context is a finished invocation;
   // a call still pending when its invocation finishes is rejected at that moment (85-91).
   const host = (api, args, fn) => {
-    record(api, args);
+    const c = record(api, args);
     const inv = invocationContext.getStore();
     if (inv && invocations.get(inv.id) !== inv) {
       aborted.push({ api });
       return Promise.reject(apiError('PLUGIN_TOOL_ABORTED', 'Plugin tool invocation finished'));
     }
     const result = Promise.resolve().then(fn);
+    result.then((v) => { c.result = v; }, () => {}); // what the host answered, for tests
     if (!inv) return result;
     return new Promise((resolve, reject) => {
       const entry = { reject: (e) => { aborted.push({ api }); reject(e); } };
@@ -114,12 +135,20 @@ export async function startFakeHost({ pluginDir, dataDir, grant, locale = 'en-US
   };
   // Parent calls other than tool.execute run outside any invocation (plugin-host-process.mjs 660).
   const outside = (fn) => invocationContext.run(undefined, fn);
+  // A parent {t:'event'} frame: delivered on a later turn, outside any invocation, each listener in
+  // a try/catch (handleHostEvent). Resolves once every listener has run.
+  const emit = (event, args = []) => new Promise((resolve) => setImmediate(() => outside(() => {
+    for (const listener of [...(eventListeners.get(event) || [])]) {
+      try { listener(...args); } catch (e) { eventErrors.push({ event, message: String((e && e.message) || e) }); }
+    }
+    resolve();
+  })));
 
   const pi = {
     app: {
       getVersion: () => host('app.getVersion', [], async () => '0.16.1'),
-      getLocale: () => host('app.getLocale', [], async () => locale),
-      getAppearance: () => host('app.getAppearance', [], async () => ({ theme: 'system', base: 'system', locale, pluginTheme: null })),
+      getLocale: () => host('app.getLocale', [], async () => { if (localeError) throw localeError; return currentLocale; }),
+      getAppearance: () => host('app.getAppearance', [], async () => appearance()),
     },
     plugin: {
       getId: () => manifest.id,
@@ -197,7 +226,15 @@ export async function startFakeHost({ pluginDir, dataDir, grant, locale = 'en-US
         external.push(ok);
       }),
     },
-    events: { on: () => {}, off: () => {} },
+    events: {
+      on: (event, handler) => {
+        if (typeof handler !== 'function') return;
+        const listeners = eventListeners.get(event) || new Set();
+        listeners.add(handler);
+        eventListeners.set(event, listeners);
+      },
+      off: (event, handler) => { const l = eventListeners.get(event); if (l) l.delete(handler); },
+    },
   };
 
   // handleInit: the host sets globalThis.pi, then requires main.js and runs onLoad.
@@ -235,11 +272,25 @@ export async function startFakeHost({ pluginDir, dataDir, grant, locale = 'en-US
   }
   const serviceStart = await startServices();
 
+  // The language switch (app-lifecycle.ts 584-598, 652-658): set the locale and, unless told
+  // otherwise, broadcast appearance:changed. Resolves after the listeners have run.
+  async function setLocale(next, { broadcast = true } = {}) {
+    currentLocale = next;
+    if (broadcast) await emit('appearance:changed', [appearance()]);
+  }
+  // Restored at boot: the stored settings are applied only now (startup.ts 314-322).
+  if (bootLocale !== undefined) await setLocale(locale);
+
   let turn = 0;
   return {
-    pi, manifest, calls, tools, commands, services, toasts, external, completeLog, serviceLog, permissions, serviceStart, aborted,
+    pi, manifest, calls, tools, commands, services, toasts, external, completeLog, serviceLog, permissions, serviceStart, aborted, eventErrors,
     get panelOpen() { return panelOpen; },
-    startServices, stopServices,
+    startServices, stopServices, setLocale,
+    // Deliver any host event, well-formed or not (tests of the plugin's listener).
+    emit,
+    listenerCount(event) { const l = eventListeners.get(event); return l ? l.size : 0; },
+    // Make app.getLocale reject (true / an error) or answer again (false).
+    failGetLocale(on = true) { localeError = !on ? null : on instanceof Error ? on : apiError('UNAVAILABLE', 'getLocale failed'); },
     // One Agent tool call from conversation `sessionId` (plugin-runtime.ts 2583-2640).
     async tool(name, args, { sessionId, mode = 'agent', modelKey = 'test/agent-model' } = {}) {
       const t = tools.get(name);

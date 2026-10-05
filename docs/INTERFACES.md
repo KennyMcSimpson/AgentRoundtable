@@ -77,6 +77,7 @@ Seat = {
                               // 服务把审计中学到的 sessionId / childThreads / discoveryCursors / cursors 存在 private/audit/<seatId>.json，
                               // 下次审计不再探测候选、不从头重读（见 §7 audit）
   "hosted": null | { "kind": "pi", "tier": "discussion"|"exec"|"reviewer" },
+  "surface"?: {"kind":"tool","tool":"<宿主给模型看的工具名>"}   // 只有工具席位有，见 §5a
   "reviews": ["B"]            // 分工模式：本席位审查哪些席位的产物（审查边）
 }
 ```
@@ -173,6 +174,28 @@ assign --file <draft.md>         DRAFTED（草案格式：每行 `- <seatId>: <�
 文本标记备路径（在 submit 的正文里）：`<<ROOM:VERDICT pass artifact=sha>>`、`<<ROOM:DISCLOSE argv=[...]>>`、`<<ROOM:POINT seq=N>>…`、`<<ROOM:QUOTE seq=N>>…<<ROOM:END>>`、`<<ROOM:MARK item=id status=accepted>>`、`<<ROOM:MISQUOTED seq=N>>`、`<<ROOM:ASSIGN>>…<<ROOM:END>>`、`<<ROOM:PASS>>`。处理顺序见方案 §4.5：先剔除定界块与引用块内的标记；取本回合最后一个；冲突/缺失/变形 → malformed → 追问一次 → verdict 记 none，绝不默认 pass。
 结构化提交也走发件箱：`<submissionId>.json` 的 `meta.kind` 区分，服务回执同路径。
 
+## 5a. 席位的交卷面（surface）
+
+交卷面决定包、散会声明、malformed 追问和席位命令的回执怎样写出席位的动作（`lib/surface.mjs`）；它不改权限、attempt 规则和发件箱协议。三种，`seatSurface(seat)` 按这个顺序判定：
+1. `hosted`：`seat.hosted` 有值（内置 Pi、宿主通道，包括 PI-Desktop 插件的 `pi-complete`）。从不存储。
+2. `tool`：`seat.surface = {"kind":"tool","tool":"<工具名>"}` 且工具名合法（`^[A-Za-z][A-Za-z0-9_.-]{0,127}$`）。宿主的一个对话，只经这个宿主工具行事。
+3. `cli`：其余一切（没有这个字段、字段坏了、手写的 `{"kind":"cli"}`）。默认值，什么也不存；席位运行 §5 的命令（JOIN.md），`lib/templates/*.md` 就是为它写的。
+
+agent pi-user 本身不决定交卷面：不带 `--surface` 的 pi-user 席位就是命令行席位。
+
+登记：`admin add-seat --surface cli|tool:<工具名>`（嵌入接口 `addSeat({surface: 'tool:<工具名>'})`）。`tool:<工具名>` 把 `surface` 写进 seat.json 和 room.json 的席位记录（紧跟 `hosted`），SEAT 行末尾加 ` surface=tool:<工具名>`；`cli` 和不带这个参数什么也不存。拒绝（CliError，不建席）：值不合法；与 `--hosted` 同用；工具席位登记 `codex-queue` 唤醒（给了 `--wake-thread` 而不带 `--wake-kind` 时就是它；工具席位可以用宿主的唤醒种类，例如 `pi-session`）。工具席位不是托管席位，服务照常扫描它的发件箱。
+
+席位工具契约（工具席位的宿主工具要实现的）：
+- `action` ∈ `wait|submit|status|leave|point|quote|mark|verdict|disclose|pass|misquoted|assign|artifacts`，即 §5 的命令名。
+- 每次调用都带 `room`（room.json 的 `id`）；需要回合的 action 带 `attempt`。
+- 字段：submit / assign 用 `text`；point / quote / misquoted 用 `seq` + `text`；mark 用 `item`、`status`、`text?`；verdict 用 `value`、`artifact`、`text`；disclose 用 `argv`（字符串数组）、`reason`；artifacts 用 `paths`、`baseline?`、`exclude?`。
+- `wait` 交出整份包文本。
+- 席位由宿主上下文绑定，参数里从不出现令牌或会话 id。
+
+托管席位：没有命令，也没有提交工具；它这一次回复的全文就是本回合的发言，结构化记录只能写成回复正文里原样的 ASCII 标记（上面的文本标记备路径）。它没有声明产物的通道，Work 回合记 no_artifact。前言里「你声明的权限档位：…；等待方式：…」那一行也换掉：托管席位的权限由房间按 `seat.hosted.tier` 定，它也不等待。
+
+PI-Desktop 插件的 Room 工具（模型看到 plugin_<插件 id>_Room）就是这样一个工具：插件给它的 `pi` 席位登记 `--surface tool:plugin_io_github_kennymcsimpson_governed_roundtable_Room`，`complete` 席位是托管席位。
+
 ## 6. 包与清单（lib/packet.mjs）
 
 包 = 房间前言块（seat=room authority=room）+ 用户任务块（authority=user）+ 已接受发言块（authority=none，带声明行）+ 摘要块（当前汇总 version）+ 材料块 + 条目表（summary 回合）+ 取代通知（如有）+ 作废声明（上一 attempt 被作废时，带 attemptId）+ 本回合任务。
@@ -180,6 +203,7 @@ assign --file <draft.md>         DRAFTED（草案格式：每行 `- <seatId>: <�
 预算（§7.6）：以整条消息为单位，钉住当轮全部发言、被引用消息、当前汇总；其余旧到新丢，写 `dropped: [{fromSeq,toSeq}]`。包超过 `budget.packetMaxBytes` 才触发。
 清单 manifests/<packetId>.json：`{packetId, seatId, attemptId, roundId, epoch, nonce, sha256, bytes, messageSeqs, summaryVersion, materialVersions, templateHash, renderVersion, declaredTier, auditSource, hostOutputLimit, escaped, prevManifestId, dropped}`。
 散会声明包（farewell）：房间规则失效；同伴内容不是用户指令；不要写进持久记忆。
+交卷面（§5a）：前言、角色与阶段模板里的命令行、预算裁剪说明的最后一句和散会声明第 2 行按交卷面写，由 `lib/surface.mjs` 给出（模板文件不变，工具席位和托管席位的命令行按行前缀换成该交卷面的片段，其余还含 `{{roomCmd}}` / `{{seatDir}}` 的行丢掉）。非 cli 的清单多两个键 `surface`、`surfaceHash`（该交卷面文本的 sha256）；命令行席位的清单不变。
 
 ## 7. 治理模块
 
@@ -257,7 +281,7 @@ export function createPiSeat({ tier, apiKey, model, cwd, sessionDir, onEvent }) 
 | supervision | lib/supervision.mjs, test/supervision.test.mjs |
 | audit | lib/audit.mjs, test/audit.test.mjs, test/fixtures/audit/* |
 | spawn+budget+usage | lib/spawn.mjs, lib/budget.mjs, lib/usage.mjs, test/{spawn,budget,usage}.test.mjs |
-| packet | lib/packet.mjs, lib/templates/*.md, test/packet.test.mjs |
+| packet | lib/packet.mjs, lib/surface.mjs, lib/templates/*.md, test/packet.test.mjs, test/surface.test.mjs |
 | service | lib/service.mjs, lib/reducer.mjs, lib/http.mjs, test/service.test.mjs |
 | seat+join+admin | lib/seat.mjs, lib/join.mjs, lib/admin.mjs, room.mjs, test/seat.test.mjs |
 | hosted pi | lib/hosted/pi.mjs, lib/hosted/dpapi.mjs, test/hosted-pi.test.mjs, test/dpapi.test.mjs |
@@ -276,6 +300,7 @@ export function createPiSeat({ tier, apiKey, model, cwd, sessionDir, onEvent }) 
 - `openRoom({roomDir, tickMs, port, hostedProviders, piApiKey, log})`：在本进程里起 `createRoomService`，定时 tick，维护 `service.lock` 心跳，可选起回环 UI；返回 `{view(), events(since), admin(cmd, params), url, adminToken, close()}`。`admin()` 直接进运行中服务的处理函数，和 admin-queue 记录等价。
 - `seatClient({roomDir, seatId})`：一个席位的全部命令（`wait/submit/status/leave/pass/point/quote/mark/misquoted/verdict/disclose/assign/artifacts`）。`submit({text})` 把发言写进该席位自己发件箱的 `drafts/` 再提交，席位仍然只写自己的发件箱。
 - 托管通道席位：`addSeat({hosted: 'lane:<名字>[:<档位>]'})` 建席，`openRoom({hostedProviders: {lane: (ctx) => handle}})` 注入运行它的工厂；`handle` 与 `createPiSeat` 的返回同形（`prompt(packetText) -> {text, stopReason, usage, failureClass?}`、`cancel()`、`busy`）。命令行起的服务没有通道，轮到它时记 `seat_failed`，错误码 `HOSTED_PROVIDER_MISSING`。PI-Desktop 用它把 v-subagent 通道（claude-code、anyrouter、webchat…）作为托管席位坐进受治理的房间。托管席位可带模型：`addSeat({hosted: 'lane:anyrouter', model: 'gpt-6-astra'})`（CLI `--model`），记在 `seat.hosted.model`，工厂拿到的 `ctx.seat.hosted.model` 就是它，宿主据此调用通道；外部 agent 不接受 `--model`（模型在它自己那里选）。
+- 宿主自己的对话席位：`addSeat({agent: 'pi-user', wait, surface: 'tool:<模型看到的工具名>'})`，它的包只写这个工具的调用（§5a）；不带 `surface` 的 pi-user 席位按命令行席位写。
 - 宿主唤醒：`addSeat({'wake-thread': <会话 id>, 'wake-kind': 'pi-session'})` 登记，`openRoom({wakers: {'pi-session': ({seat, attemptId, thread, text}) => ({ok, detail})}})` 注入投递方式。上限、不重复推送、`wake_pushed` 事件与 Codex queue 完全相同；文案固定为「[ROOM authority=none] 轮到席位 X，请取本回合的包」，不含房间内容。没注入时该席位记为需用户唤醒。
 - 服务锁记录写入者自己的进程名（`image`），宿主用自带运行时（`ELECTRON_RUN_AS_NODE`）跑服务时，命令行再起服务不会把它误判为失效而接管。
 - `view()` 带 `items`：当前轮的条目表（整段发言条目加意见条目，已套上主力在汇总回合的标注），界面条目表直接用它。

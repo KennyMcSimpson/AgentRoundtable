@@ -490,6 +490,13 @@ test('malformedFollowUp is Chinese, names the reasons, and never promises a defa
   assert.ok(malformedFollowUp().includes('attempt=-'));
 });
 
+test('malformedFollowUp: the resubmit line is the caller\'s (seat surface); the CLI text is the default', () => {
+  const cli = '结构化提交无法解析（attempt=a1），本回合追问一次。\n请只用原样 ASCII 标记或 room 子命令重新提交；标记示例：<<ROOM:VERDICT pass artifact=<manifestSha>>>、<<ROOM:PASS>>。\n还可以更正 1 次；再次失败将按 verdict=none 交给用户处理，房间不会默认记为 pass。';
+  assert.equal(malformedFollowUp({ reasons: [], attemptId: 'a1' }), cli);
+  assert.equal(malformedFollowUp({ reasons: [], attemptId: 'a1', resubmit: undefined }), cli);
+  assert.equal(malformedFollowUp({ reasons: [], attemptId: 'a1', resubmit: 'X' }).split('\n')[1], 'X');
+});
+
 // ---------------------------------------------------------------- item table
 
 const MESSAGES = [

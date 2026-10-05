@@ -136,7 +136,7 @@ node <app>\room.mjs admin close --id demo
 | 命令 | 说明 |
 |---|---|
 | `admin init --id <id> [--dir …] [--preset …] [--wall s] [--work-wall s] [--max-work n] [--max-tokens n] [--packet-max-bytes n]` | 建房；拒绝被重定向的位置、CODEX_HOME / CLAUDE_CONFIG_DIR 之内的位置 |
-| `admin add-seat --seat <id> --role executor\|reviewer\|lead\|participant --cwd <dir> [--agent …] [--wait background\|turn_over\|manual] [--tier discussion\|readonly\|workspace\|full] [--reviews A,B] [--hosted pi:discussion\|pi:exec\|pi:reviewer\|lane:<通道>[:<档位>]] [--model <模型 id>（只用于托管席位）] [--wake-thread …] [--wake-max n] [--audit codex\|claude --thread-id … --session-id …] [--name …] [--wall s] [--wait-timeout s]` | 建席（服务未运行时）；生成 `seats/<id>/JOIN.md`、`room.cmd`。`--cwd` 必须是已存在的目录（房间不写也不替你创建席位工作目录）；房间目录不能在任何席位工作目录所属的 git 仓库之内 |
+| `admin add-seat --seat <id> --role executor\|reviewer\|lead\|participant --cwd <dir> [--agent …] [--wait background\|turn_over\|manual] [--tier discussion\|readonly\|workspace\|full] [--reviews A,B] [--hosted pi:discussion\|pi:exec\|pi:reviewer\|lane:<通道>[:<档位>]] [--model <模型 id>（只用于托管席位）] [--surface cli\|tool:<工具名>（工具席位：宿主对话只经这个工具行事（INTERFACES §5a））] [--wake-thread …] [--wake-max n] [--audit codex\|claude --thread-id … --session-id …] [--name …] [--wall s] [--wait-timeout s]` | 建席（服务未运行时）；生成 `seats/<id>/JOIN.md`、`room.cmd`。`--cwd` 必须是已存在的目录（房间不写也不替你创建席位工作目录）；房间目录不能在任何席位工作目录所属的 git 仓库之内 |
 | `admin set-audit --seat <id> --kind codex\|claude [--thread-id …] [--session-id …]` | 事后登记审计源 |
 | `admin task\|say --text "…" \| --file <path>` | 任务；用户消息（默认下一轮进包） |
 | `admin start --order A,B[,A]` | 开一轮 |

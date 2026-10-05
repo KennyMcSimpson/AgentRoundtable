@@ -19,7 +19,8 @@ import {
   ADMIN_COMMANDS, queueRecord, locationProblem, summarizeRoom, claudeTranscriptBaseline, realOf, ROOM_SCHEMA_VERSION, serviceRunning,
 } from '../lib/admin.mjs';
 import { LOCK_STALE_MS } from '../lib/common.mjs';
-import { renderJoin, renderRoomCmd, AGENT_KINDS, AGENT_KIND_NAMES, defaultWaitMode, cmdPath } from '../lib/join.mjs';
+import { renderJoin, renderRoomCmd, AGENT_KINDS, AGENT_KIND_NAMES, defaultWaitMode, cmdPath, seatRoomCmd } from '../lib/join.mjs';
+import { SURFACE_LINES } from '../lib/surface.mjs';
 import { parseArgs } from '../lib/common.mjs';
 import { loadTemplates } from '../lib/packet.mjs';
 import { startHttp } from '../lib/http.mjs';
@@ -827,6 +828,7 @@ test('wait: a voided attempt and no new turn -> NOTICE leads in place of TURN_OV
   r = await seat(fake, 'wait', { timeout: '0.2' });
   assert.equal(r.code, EXIT.NOT_YOUR_TURN);
   assert.match(r.first, /^NOTICE attempt=b1 status=canceled by=admin .*phase=meet current=A waited=/);
+  assert.ok(r.first.endsWith('：结束本回合，用户会提醒你何时再运行 wait。'), r.first);
   // ROOM_CLOSED keeps line 1 (and FAREWELL line 2); the note follows.
   fake.setEvents([{ type: 'packet_issued', seatId: 'B', attemptId: 'b3' }]);
   fake.setState(baseState({ currentSeat: 'B', attempt: attemptFor('B', 'b3') }));
@@ -1157,4 +1159,91 @@ test('disclose through real Windows shells: the documented quote-free form via c
     assert.match(r.stdout, /^REQUESTED id=dsc-3/);
   } finally { svc.stop(); }
   assert.deepEqual(got, [['git', 'diff'], ['git', 'diff'], ['git', 'diff']]);
+});
+
+// ---------------------------------------------------------------- seat surfaces (lib/surface.mjs, INTERFACES §5a)
+
+test('add-seat --surface tool:<name>: stored after hosted in seat.json and room.json, shown on SEAT; cli stores nothing', () => {
+  const fake = makeRoom({ seats: [
+    { seat: 'A', role: 'reviewer', agent: 'pi-user', wait: 'manual', surface: 'tool:plugin_x_Room' },
+    { seat: 'B', role: 'executor', agent: 'claude-code' },
+    { seat: 'C', role: 'participant', agent: 'pi-user', wait: 'manual', surface: 'cli' },
+    { seat: 'D', role: 'participant', agent: 'pi-user', wait: 'manual' },
+  ] });
+  const room = readJson(path.join(fake.roomDir, 'room.json'));
+  const rec = (id) => room.seats.find((s) => s.seatId === id);
+  const tool = { kind: 'tool', tool: 'plugin_x_Room' };
+  assert.deepEqual(fake.seat('A').surface, tool);
+  assert.deepEqual(rec('A').surface, tool);
+  const keys = Object.keys(fake.seat('A'));
+  assert.equal(keys[keys.indexOf('hosted') + 1], 'surface', 'surface right after hosted');
+  const seatLine = (id) => fake.io.lines.find((l) => l.startsWith(`SEAT ${id} `));
+  assert.ok(seatLine('A').endsWith(' surface=tool:plugin_x_Room'), seatLine('A'));
+  assert.ok(!('surface' in fake.seat('B')) && !('surface' in rec('B')));
+  assert.ok(!seatLine('B').includes('surface='));
+  assert.deepEqual(Object.keys(fake.seat('C')), Object.keys(fake.seat('D')), '--surface cli is the same as no flag');
+  assert.ok(!seatLine('C').includes('surface='));
+});
+
+test('add-seat --surface refusals: malformed, with --hosted, a tool seat with a codex-queue wake', () => {
+  const fake = makeRoom({ seats: [{ seat: 'A', role: 'reviewer', agent: 'claude-code' }, { seat: 'B', role: 'executor', agent: 'claude-code' }] });
+  const g = testGuard(fake.root);
+  let n = 0;
+  const add = (over) => {
+    const cwd = path.join(fake.root, `cwd-s${++n}`);
+    g.mkdir(cwd);
+    return () => ADMIN_COMMANDS['add-seat']({ dir: fake.roomDir, seat: `S${n}`, role: 'participant', agent: 'pi-user', wait: 'manual', cwd, _: ['add-seat'], ...over }, fake.io.io);
+  };
+  for (const surface of ['tool', 'tool:1x', 'gui', true]) assert.throws(add({ surface }), (e) => e instanceof CliError && /^--surface cli\|tool:/.test(e.message), String(surface));
+  assert.throws(add({ surface: 'tool:T', hosted: 'pi:discussion', agent: undefined }), (e) => e instanceof CliError && /--surface 只用于不是托管的席位/.test(e.message));
+  assert.throws(add({ surface: 'tool:T', 'wake-thread': 't1' }), (e) => e instanceof CliError && /工具席位不能登记 Codex queue 唤醒/.test(e.message));
+  const seats = () => readJson(path.join(fake.roomDir, 'room.json')).seats.map((s) => s.seatId);
+  assert.deepEqual(seats(), ['A', 'B'], 'no refused seat was created');
+  for (let i = 1; i <= n; i++) assert.ok(!fs.existsSync(fake.seatDir(`S${i}`)), `S${i} has no seat folder`);
+  assert.equal(add({ surface: 'tool:T', 'wake-thread': 's1', 'wake-kind': 'pi-session' })(), 0);
+  assert.deepEqual(fake.seat(`S${n}`).wake.kind, 'pi-session');
+  assert.deepEqual(fake.seat(`S${n}`).surface, { kind: 'tool', tool: 'T' });
+});
+
+test('wait and submit for a tool seat name Room tool actions; a CLI seat keeps its command lines', async () => {
+  const fake = makeRoom({ seats: [{ seat: 'A', role: 'reviewer', agent: 'pi-user', wait: 'manual', surface: 'tool:plugin_x_Room' }, { seat: 'B', role: 'executor', agent: 'claude-code' }] });
+  fake.setEvents([]);
+  fake.setState(baseState({ currentSeat: 'A', attempt: attemptFor('A', 'a1') }));
+  let r = await seat(fake, 'wait', { seatId: 'A' });
+  assert.match(r.first, /^TURN attempt=a1 /);
+  assert.ok(r.out.includes(SURFACE_LINES.tool.turnRead), r.out);
+  assert.ok(r.out.split('\n').includes('交卷：调用房间工具 submit（attempt=a1，text 是发言全文），不用写文件。'), r.out);
+  assert.ok(!r.out.includes('--seat'), r.out);
+  // A voided attempt and no new turn after the timeout: the tool seat is told to call wait again.
+  fake.setEvents([{ type: 'packet_issued', seatId: 'A', attemptId: 'a1' }, { type: 'attempt_canceled', seatId: 'A', attemptId: 'a1', by: 'admin' }]);
+  fake.setState(baseState({ currentSeat: 'B', attempt: attemptFor('B', 'b1') }));
+  r = await seat(fake, 'wait', { seatId: 'A', timeout: '0.2' });
+  assert.equal(r.code, EXIT.NOT_YOUR_TURN);
+  assert.match(r.first, /^NOTICE attempt=a1 status=canceled by=admin /);
+  assert.ok(r.first.endsWith(`：结束本回合，用户会提醒你何时再${SURFACE_LINES.tool.waitAgain}。`), r.first);
+  assert.ok(!r.first.includes('运行 wait'), r.first);
+  fake.setEvents([]);
+  fake.setState(baseState({ currentSeat: 'B', attempt: attemptFor('B', 'b1') }));
+  r = await seat(fake, 'wait', {});
+  assert.match(r.first, /^TURN attempt=b1 /);
+  assert.ok(r.out.includes('先用读文件工具读完包文件再工作。'));
+  const cmd = seatRoomCmd({ seat: fake.seat('B'), seatDir: fake.seatDir('B'), fallback: '' });
+  assert.equal(r.out.split('\n').find((l) => l.startsWith('交卷：')), `交卷：${cmd} submit --seat ${fwd(fake.seatDir('B'))} --attempt b1 --file <工作目录根下的发言文件>`);
+
+  const g = testGuard(fake.root);
+  const malformed = () => ({ status: 'ACCEPTED', kind: 'speech', seq: 4, malformed: 'verdict_missing', reasons: [{ code: 'verdict_missing' }], followUp: true });
+  const svcA = autoReply(fake, 'A', malformed);
+  const svcB = autoReply(fake, 'B', malformed);
+  try {
+    g.writeFile(path.join(fake.root, 'cwd-A', 'speech-a1.md'), '结论');
+    fake.setState(baseState({ currentSeat: 'A', attempt: attemptFor('A', 'a1') }));
+    r = await seat(fake, 'submit', { seatId: 'A', attempt: 'a1', file: path.join(fake.root, 'cwd-A', 'speech-a1.md') });
+    assert.equal(r.first, 'ACCEPTED MALFORMED verdict_missing attempt=a1 seq=4');
+    assert.ok(r.out.includes(SURFACE_LINES.tool.malformedAccepted), r.out);
+    g.writeFile(path.join(fake.root, 'cwd-B', 'speech-b1.md'), '汇报');
+    fake.setState(baseState({ currentSeat: 'B', attempt: attemptFor('B', 'b1') }));
+    r = await seat(fake, 'submit', { attempt: 'b1', file: path.join(fake.root, 'cwd-B', 'speech-b1.md') });
+    assert.equal(r.first, 'ACCEPTED MALFORMED verdict_missing attempt=b1 seq=4');
+    assert.ok(r.out.split('\n').includes('房间接受了这次提交但标为 malformed，会在下一个包里追问一次；只用原样 ASCII 标记或 room 子命令更正。'), r.out);
+  } finally { svcA.stop(); svcB.stop(); }
 });

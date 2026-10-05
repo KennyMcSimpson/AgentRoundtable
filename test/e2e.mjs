@@ -366,6 +366,8 @@ async function governedRoom() {
   check('room3 r4: submit while unreconciled -> NEEDS_RECONCILE, nothing accepted', r.code === 0 && /^NEEDS_RECONCILE/m.test(r.out) && !ev3().some((e) => e.type === 'submission_accepted' && e.attemptId === a4.aid), r.out.trim().split('\n')[0]);
   a3('reconcile', [a4.aid, 'void']);
   await until(() => lastOf('reconciled', (e) => e.attemptId === a4.aid));
+  // The fresh attempt is issued on a later tick than the reconcile; wait for it rather than racing it.
+  await until(() => lastOf('packet_issued', (e) => e.seatId === 'A' && e.attemptId !== a4.aid && e.seq > nr.seq), 10000);
   const a4b = turn('A');
   check('room3 r4: after reconcile void -> a fresh TURN, then the void note for the old attempt', !!a4b.aid && a4b.aid !== a4.aid && new RegExp(`NOTICE attempt=${a4.aid}`).test(a4b.r.out), a4b.r.out.split('\n').slice(0, 2).join(' | '));
 

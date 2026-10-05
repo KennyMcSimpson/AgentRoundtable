@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { SURFACE_FRAGMENTS, SURFACE_LINES } from '../../../lib/surface.mjs';
 
 const PLUGIN = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'plugin');
 const manifest = JSON.parse(fs.readFileSync(path.join(PLUGIN, 'manifest.json'), 'utf8'));
@@ -74,4 +75,16 @@ test('contributions match the permissions (the marketplace audit blocks a mismat
   assert.equal(c.skills, undefined, 'no skills, so no agent.prompt.inject');
   assert.ok(!manifest.permissions.includes('desktop.control'));
   assert.ok(!manifest.permissions.includes('net.fetch'));
+});
+
+test('the Room tool schema covers every call a tool-seat packet names (room-dev lib/surface.mjs)', () => {
+  const schema = manifest.contributes.agentTools[0].schema;
+  const texts = [...Object.values(SURFACE_FRAGMENTS.tool).flat().map((f) => f.text), ...Object.values(SURFACE_LINES.tool)];
+  const actions = new Set(texts.flatMap((t) => [...t.matchAll(/"action":"([^"]+)"/g)].map((m) => m[1])));
+  // The preamble also lists the actions as a pipe list ("action 取 wait|submit|...").
+  for (const t of texts) for (const m of t.matchAll(/action 取 ([a-z|]+)/g)) for (const a of m[1].split('|')) actions.add(a);
+  assert.ok(actions.has('leave') && actions.has('wait'), 'the preamble pipe list is read');
+  assert.ok(actions.size > 0);
+  for (const a of actions) assert.ok(schema.properties.action.enum.includes(a), `action ${a} is in the schema`);
+  for (const t of texts) for (const m of t.matchAll(/"([A-Za-z_]+)":/g)) assert.ok(Object.hasOwn(schema.properties, m[1]), `field ${m[1]} is a schema property`);
 });

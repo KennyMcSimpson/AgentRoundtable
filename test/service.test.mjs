@@ -13,11 +13,14 @@ import { initialState, reduce, rebuild, rebuildFromEvents } from '../lib/reducer
 import { startHttp, checkHostOrigin } from '../lib/http.mjs';
 import { createFakeProvider } from '../lib/hosted/pi.mjs';
 import { findOnPath } from '../lib/spawn.mjs';
+import { SURFACE_LINES } from '../lib/surface.mjs';
 
 const roots = [];
 after(() => { for (const r of roots) fs.rmSync(r, { recursive: true, force: true }); });
 
 const T0 = Date.parse('2026-10-01T08:00:00.000Z');
+// A command line, a seat-command flag or an unfilled placeholder: none may reach a tool or hosted seat.
+const CLI_LEAK = /room\.mjs|room\.cmd|--(?:seat|attempt|file|declare|seq|text|item|status|artifact|arg|argv-file|reason|log|baseline|exclude)\b|子命令|\{\{/;
 let tsCounter = 0;
 
 // ---------------------------------------------------------------- fixtures
@@ -43,6 +46,7 @@ function makeRoom({ preset, seats, room = {} }) {
     const rec = {
       seatId: s.seatId, name: s.seatId, role: s.role, waitMode: s.waitMode || 'background', cwd, outbox: path.join(cwd, '.room-outbox', s.seatId),
       roomDir, createdAt: new Date(T0).toISOString(), wake: s.wake || { enabled: false }, audit: s.audit || null, hosted: s.hosted || null,
+      ...(s.agent ? { agent: s.agent } : {}), ...(s.surface ? { surface: s.surface } : {}),
       ...(s.reviews ? { reviews: s.reviews } : {}), ...(s.wallClockSec ? { wallClockSec: s.wallClockSec } : {}),
     };
     g.writeFile(path.join(seatDir, 'seat.json'), JSON.stringify(rec));
@@ -560,7 +564,11 @@ test('malformed verdict -> ACCEPTED MALFORMED, one follow-up packet, then verdic
   const fev = ofType(env, 'packet_issued').find((e) => e.attemptId === fu);
   assert.equal(fev.kind, 'followup');
   assert.equal(fev.followUpOf, as);
-  assert.match(packetText(svc, fu), /追问一次/);
+  const fuText = packetText(svc, fu);
+  assert.match(fuText, /追问一次/);
+  // A CLI seat's follow-up keeps the CLI resubmit line through the service, not just in malformedFollowUp.
+  assert.ok(fuText.includes('请只用原样 ASCII 标记或 room 子命令重新提交；标记示例：<<ROOM:VERDICT pass artifact=<manifestSha>>>、<<ROOM:PASS>>。'));
+  assert.ok(!fuText.includes(SURFACE_LINES.hosted.resubmit) && !fuText.includes(SURFACE_LINES.tool.resubmit));
   const s2 = seatSpeak(env, 'A', fu, '我还是不确定。<<ROOM:PASS>>');
   await ticks(svc);
   const r2 = replyOf(env, 'A', s2);
@@ -897,6 +905,8 @@ test('hosted lane seat: an injected host provider speaks in turn; without the pr
   assert.equal(made.length, 1);
   assert.equal(made[0].prompts.length, 1);
   assert.match(made[0].prompts[0], /authority=none/, 'the lane receives the delimited packet, banners included');
+  assert.doesNotMatch(made[0].prompts[0], CLI_LEAK, 'a hosted seat is told no command line');
+  assert.ok(made[0].prompts[0].includes('<<ROOM:PASS>>'));
   assert.equal(svc.view().piKey, 'absent', 'a lane seat never needs the Pi key');
   await svc.close();
 
@@ -1382,4 +1392,59 @@ test('NI-12: the audit registers the Claude session it found by packet id and ke
   } finally {
     if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = saved;
   }
+});
+
+// ---------------------------------------------------------------- seat surfaces (lib/surface.mjs, INTERFACES §5a)
+
+test('surfaces: a CLI lead, a tool seat and a hosted lane each get their own text in one room', async () => {
+  const made = [];
+  const hostedProviders = { lane: ({ seat }) => { const h = { busy: false, prompts: [], prompt: async (text) => { h.prompts.push(text); return { text: '同意。<<ROOM:PASS>>', stopReason: 'end_turn', usage: null }; } }; made.push(h); return h; } };
+  const env = makeRoom({ preset: 'discussion', seats: [
+    { seatId: 'A', role: 'lead' },
+    { seatId: 'P', role: 'participant', agent: 'pi-user', waitMode: 'manual', surface: { kind: 'tool', tool: 'plugin_x_Room' } },
+    { seatId: 'L', role: 'participant', hosted: { kind: 'lane', lane: 'pi-complete', tier: 'discussion' } },
+  ] });
+  const { svc } = service(env, { hostedProviders });
+  await svc.admin({ cmd: 'task', text: '讨论' });
+  await svc.admin({ cmd: 'start', order: 'A,P,L' });
+  await ticks(svc);
+  const aa = svc.state.holding.A;
+  assert.ok(packetText(svc, aa).includes(' submit --seat '), 'the CLI lead keeps its command lines');
+  seatSpeak(env, 'A', aa, '开题');
+  await ticks(svc);
+  const pa = svc.state.holding.P;
+  assert.ok(pa, 'P holds the next turn');
+  const pt = packetText(svc, pa);
+  assert.doesNotMatch(pt, CLI_LEAK);
+  assert.ok(pt.includes('"action":"submit"'));
+  assert.ok(pt.includes('plugin_x_Room（下称房间工具）'));
+  const pid = ofType(env, 'packet_issued').find((e) => e.attemptId === pa).packetId;
+  assert.equal(JSON.parse(fs.readFileSync(path.join(env.roomDir, 'manifests', `${pid}.json`), 'utf8')).surface, 'tool');
+  seatSpeak(env, 'P', pa, '补充一点。');
+  await ticks(svc, 4);
+  assert.equal(made.length, 1);
+  assert.doesNotMatch(made[0].prompts[0], CLI_LEAK);
+  assert.ok(made[0].prompts[0].includes('交卷方式：本席位由房间托管'));
+  await svc.close();
+});
+
+test('surfaces: a hosted lane\'s malformed reply gets one follow-up naming markers only', async () => {
+  const replies = ['我的结论 <<ROOM:VERDICT 通过>>', '更正：<<ROOM:PASS>>'];
+  const made = [];
+  const hostedProviders = { lane: () => { const h = { busy: false, prompts: [], prompt: async (text) => { h.prompts.push(text); return { text: replies.shift() || '同意', stopReason: 'end_turn', usage: null }; } }; made.push(h); return h; } };
+  const env = makeRoom({ preset: 'discussion', seats: [{ seatId: 'A', role: 'lead' }, { seatId: 'L', role: 'participant', hosted: { kind: 'lane', lane: 'pi-complete', tier: 'discussion' } }] });
+  const { svc } = service(env, { hostedProviders });
+  await svc.admin({ cmd: 'task', text: '讨论' });
+  await svc.admin({ cmd: 'start' });
+  await ticks(svc);
+  seatSpeak(env, 'A', svc.state.holding.A, '开题');
+  await ticks(svc, 6);
+  const fus = ofType(env, 'packet_issued').filter((e) => e.kind === 'followup');
+  assert.equal(fus.length, 1, 'exactly one follow-up');
+  assert.equal(fus[0].seatId, 'L');
+  const prompts = made.flatMap((h) => h.prompts);
+  assert.ok(prompts.length >= 2, `the lane was asked again: ${prompts.length}`);
+  assert.ok(prompts[1].includes(SURFACE_LINES.hosted.resubmit));
+  assert.ok(!prompts[1].includes('room 子命令'));
+  await svc.close();
 });

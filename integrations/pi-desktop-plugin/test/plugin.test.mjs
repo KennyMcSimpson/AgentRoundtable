@@ -20,6 +20,10 @@ const savedHome = process.env.ROOM_DEV_HOME;
 process.env.ROOM_DEV_HOME = path.join(base, 'home');
 const ROOMS = path.join(base, 'home', 'rooms');
 const ID = 'io.github.kennymcsimpson.governed-roundtable';
+// The Room tool as the model sees it (upstream pluginToolName); a PI seat's packets name only it.
+const MODEL_TOOL = 'plugin_io_github_kennymcsimpson_governed_roundtable_Room';
+// A command line, a seat-command flag or an unfilled placeholder: none may reach a PI or hosted seat.
+const CLI_LEAK = /room\.mjs|room\.cmd|--(?:seat|attempt|file|declare|seq|text|item|status|artifact|arg|argv-file|reason|log|baseline|exclude)\b|子命令|\{\{/;
 let pluginDir;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -125,6 +129,10 @@ test('create a room from a PI conversation: rooms root, service lock, JOIN.md fo
   assert.equal(seatA.agent, 'pi-user');
   assert.equal(seatA.waitMode, 'manual', 'PI seats wait manually: no upstream API wakes a conversation from a service');
   assert.equal(seatA.wake.enabled, false, 'no wake registered');
+  assert.deepEqual(seatA.surface, { kind: 'tool', tool: MODEL_TOOL }, 'a PI seat acts only through the Room tool');
+  const seatX = JSON.parse(fs.readFileSync(path.join(ROOMS, 'r1', 'seats', 'X', 'seat.json'), 'utf8'));
+  assert.ok(!('surface' in seatX), 'an external seat keeps the command line');
+  assert.equal((await import(pathToFileURL(path.join(pluginDir, 'core.mjs')).href)).hostToolName(ID, 'Room'), MODEL_TOOL);
   const list = await host.tool('Room', { action: 'list' }, { sessionId: S1 });
   const room = list.rooms.find((x2) => x2.room === 'r1');
   assert.equal(room.served, 'here');
@@ -177,6 +185,7 @@ test('a round: PI seats wait and submit through the tool, the external seat thro
 
   assert.equal((await host.panel('roundtable/admin', { room: 'r1', cmd: 'task', text: '讨论：给 parser 加 --strict 是否值得' })).ok, true);
   assert.equal((await host.panel('roundtable/admin', { room: 'r1', cmd: 'start', order: 'A,X,B' })).ok, true);
+  assert.equal((await host.panel('roundtable/room', { room: 'r1' })).roundActive, true, 'the panel is told a round runs (start is refused until it is done)');
 
   const tA = await until(async () => { const r = await host.tool('Room', { action: 'wait', room: 'r1' }, { sessionId: S1 }); return r.status === 'TURN' ? r : null; });
   assert.ok(tA, 'A gets its turn');
@@ -184,6 +193,9 @@ test('a round: PI seats wait and submit through the tool, the external seat thro
   assert.match(tA.packet, /authority=user/);
   assert.match(tA.packet, /--strict/);
   assert.match(tA.instruction, /submit/);
+  assert.doesNotMatch(tA.packet, CLI_LEAK, 'a PI seat is told no command line');
+  assert.ok(tA.packet.includes(`"action":"submit","room":"r1","attempt":"${tA.attempt}"`));
+  assert.ok(tA.packet.includes(`${MODEL_TOOL}（下称房间工具）`));
   const offB = await host.tool('Room', { action: 'wait', room: 'r1' }, { sessionId: S2 });
   assert.ok(['TURN_OVER', 'NOT_YOUR_TURN'].includes(offB.status), 'B is told to end its turn');
   assert.ok(await until(() => host.toasts.some((t) => /seat A's turn/.test(t.message))), 'the user is told whose turn it is');
@@ -203,6 +215,8 @@ test('a round: PI seats wait and submit through the tool, the external seat thro
   const wX = await until(async () => { const r = await runSeatCommand(prefix, ['wait', '--seat', seatArg, '--once']); return /^TURN /m.test(r.out) ? r : null; }, 20000);
   assert.ok(wX, 'X gets its turn through the vendored room.mjs');
   const attemptX = /^TURN attempt=(\S+)/m.exec(wX.out)[1];
+  const packetX = / packet=(.+?) sha256=/.exec(wX.out)[1];
+  assert.ok(fs.readFileSync(packetX, 'utf8').includes(' submit --seat '), 'the external seat keeps its command lines');
   const speech = path.join(seatDir('X'), `speech-${attemptX}.md`);
   fs.writeFileSync(speech, '回应：同意 A，补充测试要求。\n');
   const subX = await runSeatCommand(prefix, ['submit', '--seat', seatArg, '--attempt', attemptX, '--file', speech]);
@@ -211,6 +225,7 @@ test('a round: PI seats wait and submit through the tool, the external seat thro
   const tB = await until(async () => { const r = await host.tool('Room', { action: 'wait', room: 'r1' }, { sessionId: S2 }); return r.status === 'TURN' ? r : null; });
   assert.ok(tB, 'B gets its turn');
   assert.match(tB.packet, /authority=none/, 'other seats arrive as authority=none blocks');
+  assert.doesNotMatch(tB.packet, CLI_LEAK);
   const pB = await host.tool('Room', { action: 'pass', room: 'r1', attempt: tB.attempt }, { sessionId: S2 });
   assert.equal(pB.status, 'ACCEPTED', JSON.stringify(pB));
 
@@ -220,6 +235,7 @@ test('a round: PI seats wait and submit through the tool, the external seat thro
   assert.equal(sum.status, 'ACCEPTED');
   const done = await until(async () => (await host.panel('roundtable/room', { room: 'r1' })).phase === 'done');
   assert.ok(done, 'round done');
+  assert.equal((await host.panel('roundtable/room', { room: 'r1' })).roundActive, false);
   const ev = events('r1');
   const speakers = ev.filter((e) => e.type === 'submission_accepted').map((e) => e.seatId);
   assert.deepEqual(speakers, ['A', 'X', 'B', 'A']);
@@ -247,6 +263,10 @@ test('hosted seat through pi.agent.complete: text-only discussion lane, failures
   assert.equal(call.messages.length, 1);
   assert.equal(call.messages[0].role, 'user');
   assert.match(call.messages[0].content, /\[ROOM:[0-9a-f]+:seat=room authority=room/);
+  assert.doesNotMatch(call.messages[0].content, CLI_LEAK, 'a hosted seat is told no command line');
+  assert.ok(!call.messages[0].content.includes('房间工具'), 'nor a tool it does not have');
+  assert.ok(call.messages[0].content.includes('<<ROOM:PASS>>'));
+  assert.ok(call.messages[0].content.includes('交卷方式：本席位由房间托管'));
   assert.ok(call.system.length > 0 && call.system.length <= 32 * 1024);
   assert.equal(call.includeSessionContext, undefined, 'no session context is requested');
   // The room was served from inside a tool call (create). Upstream rejects every pi.* call made from
@@ -289,6 +309,16 @@ test('panel: open the room UI through shell.openExternal, release a binding, clo
   const w = await host.tool('Room', { action: 'wait', room: 'r1' }, { sessionId: S1 });
   assert.equal(w.status, 'ROOM_CLOSED');
   assert.ok(typeof w.farewell === 'string' && w.farewell.length > 0, 'the farewell packet is handed over');
+  assert.ok(w.farewell.includes(`房间工具 ${MODEL_TOOL} 对这个房间的席位动作只会返回 ROOM_CLOSED`), w.farewell);
+  assert.doesNotMatch(w.farewell, CLI_LEAK);
+  // A closed room is not served or administered again, and the panel is told why.
+  const serve = await host.panel('roundtable/serve', { room: 'r1' });
+  assert.equal(serve.ok, false);
+  assert.equal(serve.error, 'ROOM_CLOSED', JSON.stringify(serve));
+  assert.equal(serve.served, 'closed');
+  assert.equal((await host.panel('roundtable/admin', { room: 'r1', cmd: 'task', text: 'x' })).error, 'ROOM_CLOSED');
+  assert.equal((await host.panel('roundtable/open-ui', { room: 'r1' })).error, 'ROOM_CLOSED');
+  assert.ok(!fs.existsSync(lockPath('r1')), 'serve did not open the closed room');
 });
 
 test('the fake host scopes pi.* calls to the tool invocation, as upstream does', async () => {
@@ -405,11 +435,57 @@ test('the plugin never reads room-dev\'s saved Pi key, even for a room with a bu
     await sleep(1500);
     const lines = host.serviceLog.slice(before);
     assert.ok(!lines.some((l) => /DPAPI|pi-key\.dpapi|Pi 的 key|Pi key/.test(l)), `no saved-key read: ${lines.join(' | ')}`);
+    // A pi-user seat made without the Room tool's surface would get command-line packets: no conversation takes it.
+    const j = await host.tool('Room', { action: 'join', room: 'k1', seat: 'A' }, { sessionId: S1 });
+    assert.equal(j.error, 'NOT_A_PI_SEAT', JSON.stringify(j));
+    assert.match(j.message, /not created for this plugin's Room tool/);
     assert.equal((await host.panel('roundtable/admin', { room: 'k1', cmd: 'close' })).ok, true);
   } finally {
     if (savedEnvKey !== undefined) process.env.ROOM_PI_API_KEY = savedEnvKey;
     fs.rmSync(keyFile, { force: true });
   }
+});
+
+test('a bound pi-user seat without the Room tool surface (a 0.1.0 room) stays visible and releasable in the panel', async () => {
+  const c = await host.tool('Room', { action: 'create', room: 'lg', preset: 'discussion', joinAs: 'A', seats: [{ seat: 'A', role: 'lead', agent: 'pi', cwd: seatDir('Alg') }, { seat: 'B', role: 'participant', agent: 'pi', cwd: seatDir('Blg') }] }, { sessionId: S1 });
+  assert.equal(c.status, 'CREATED', JSON.stringify(c));
+  // The 0.1.0 plugin stored no surface: strip it while the room is stopped, then serve it again.
+  assert.equal((await host.panel('roundtable/stop', { room: 'lg' })).ok, true);
+  const roomFile = path.join(ROOMS, 'lg', 'room.json');
+  const cfg = JSON.parse(fs.readFileSync(roomFile, 'utf8'));
+  for (const s of cfg.seats) delete s.surface;
+  fs.writeFileSync(roomFile, JSON.stringify(cfg, null, 2));
+  for (const id of ['A', 'B']) {
+    const f = path.join(ROOMS, 'lg', 'seats', id, 'seat.json');
+    const seat = JSON.parse(fs.readFileSync(f, 'utf8'));
+    delete seat.surface;
+    fs.writeFileSync(f, JSON.stringify(seat, null, 2));
+  }
+  assert.equal((await host.panel('roundtable/serve', { room: 'lg' })).ok, true);
+  const seatsOf = async () => (await host.panel('roundtable/rooms')).rooms.find((r) => r.room === 'lg').seats;
+  let seats = await seatsOf();
+  const a = seats.find((s) => s.seat === 'A');
+  assert.equal(a.kind, 'pi', JSON.stringify(seats));
+  assert.equal(a.boundTo, `…${S1.slice(-6)}`, 'the live binding is shown, so the panel draws Release');
+  assert.equal(a.joinPath, undefined);
+  const b = seats.find((s) => s.seat === 'B');
+  assert.equal(b.kind, 'external:pi-user', 'an unbound seat without the surface is not offered to a conversation');
+  assert.ok(b.joinPath);
+  const list = await host.tool('Room', { action: 'list' }, { sessionId: S1 });
+  assert.equal(list.rooms.find((r) => r.room === 'lg').seats.find((s) => s.seat === 'A').binding, 'you');
+  assert.equal((await host.tool('Room', { action: 'status', room: 'lg' }, { sessionId: S1 })).ok, true, 'the binding keeps working');
+  // The turn toast speaks to the PI conversation that holds the seat.
+  assert.equal((await host.panel('roundtable/admin', { room: 'lg', cmd: 'task', text: '讨论' })).ok, true);
+  assert.equal((await host.panel('roundtable/admin', { room: 'lg', cmd: 'start' })).ok, true);
+  const toast = await until(() => host.toasts.find((t) => /^Roundtable lg: seat A's turn/.test(t.message)));
+  assert.ok(toast, 'a turn toast for seat A');
+  assert.match(toast.message, /PI conversation/);
+  // Release from the panel: the seat is no longer held, and no conversation takes it again.
+  assert.equal((await host.panel('roundtable/unbind', { room: 'lg', seat: 'A' })).released, true);
+  seats = await seatsOf();
+  assert.equal(seats.find((s) => s.seat === 'A').kind, 'external:pi-user');
+  assert.equal((await host.tool('Room', { action: 'join', room: 'lg', seat: 'A' }, { sessionId: S2 })).error, 'NOT_A_PI_SEAT');
+  assert.equal((await host.panel('roundtable/admin', { room: 'lg', cmd: 'close' })).ok, true);
 });
 
 test('stopping the service while start is still reopening rooms leaves nothing served', async () => {
