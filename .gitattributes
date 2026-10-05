@@ -1,0 +1,6 @@
+# Text files are LF in every checkout, including Windows runners where core.autocrlf is true:
+# tests read sources (ui/app.js and others) and match them with \n-delimited patterns.
+* text=auto eol=lf
+*.ico binary
+*.png binary
+*.zip binary

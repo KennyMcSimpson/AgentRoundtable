@@ -83,8 +83,9 @@ export function parseBuildAppArgs(argv) {
 // ---------------------------------------------------------------------------------------------
 const ZIP_RE = /^electron-v(\d+)\.(\d+)\.(\d+)-win32-x64\.zip$/;
 
+// path.win32.basename splits on both / and \, so a Windows path names its zip on every host OS.
 export function electronVersionFromName(name) {
-  const m = ZIP_RE.exec(path.basename(String(name)));
+  const m = ZIP_RE.exec(path.win32.basename(String(name)));
   return m ? `${m[1]}.${m[2]}.${m[3]}` : null;
 }
 

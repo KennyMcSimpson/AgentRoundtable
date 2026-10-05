@@ -171,9 +171,12 @@ test('validateDivisionRound: valid sheet; acceptance commands collected', () => 
 });
 
 test('validateDivisionRound #32: same cwd declared by two seats is a warning requiring confirmation', () => {
+  // Two spellings of one directory on this host OS: case and a trailing separator on Windows; only the
+  // trailing separator on POSIX, where case makes a different directory.
+  const [b, c] = process.platform === 'win32' ? ['C:\\shared\\proj', 'c:\\shared\\PROJ\\'] : ['/shared/proj', '/shared/proj/'];
   const r = validateDivisionRound(n3(), [
-    { seatId: 'B', text: 'x', cwd: 'C:\\shared\\proj' },
-    { seatId: 'C', text: 'y', cwd: 'c:\\shared\\PROJ\\' },
+    { seatId: 'B', text: 'x', cwd: b },
+    { seatId: 'C', text: 'y', cwd: c },
   ]);
   assert.equal(r.ok, true);
   const w = r.warnings.find((x) => x.code === 'SAME_CWD');

@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { testRunsRoot, readJson, readJsonl, isInside, EXIT, sha256 } from '../lib/common.mjs';
+import { testRunsRoot, readJson, readJsonl, isInside, EXIT, sha256, fwd } from '../lib/common.mjs';
 import { createGuard } from '../lib/guard.mjs';
 import { spawnClean, ENV_WHITELIST } from '../lib/spawn.mjs';
 import {
@@ -250,7 +250,9 @@ test('MSIX virtualization: init and add-seat refuse with a Chinese explanation (
   assert.match(msg, /%USERPROFILE%/);
   assert.match(msg, /ROOM_DEV_HOME/);
   assert.equal(locationProblem(root, { redirect: noRedirect }), null);
-  assert.match(locationProblem(root, { redirect: (p) => ({ asked: p, real: 'D:\\elsewhere', packaged: false }) }), /真实位置是 D:\/elsewhere/);
+  // The message shows paths through fwd(), which resolves on the host OS: the literal D:/elsewhere on
+  // Windows, the path fwd() makes of that Windows path elsewhere (Linux CI).
+  assert.ok(locationProblem(root, { redirect: (p) => ({ asked: p, real: 'D:\\elsewhere', packaged: false }) }).includes(`真实位置是 ${fwd('D:\\elsewhere')}（`));
 
   const c = capture({ redirect: packaged });
   assert.throws(() => ADMIN_COMMANDS.init({ dir: path.join(root, 'room'), id: 'v', _: ['init'] }, c.io), (e) => e instanceof CliError && /MSIX/.test(e.message) && e.exitCode === 9);

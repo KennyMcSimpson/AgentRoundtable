@@ -708,7 +708,13 @@ test('service.lock probe: a holder named 圆桌 is recognised (base64 name, not 
   assert.equal(await probeLockHolder(lock, { spawn: fake(`b64:%%%|2026-10-01T07:59:59.9000000Z`), isAlive: alive, nowMs: now }), 'unknown', 'unreadable name: do not take over');
   assert.deepEqual(parseLockProbeOutput(`${b64('圆桌')}|t\r\n`), ['圆桌', 't']);
   assert.deepEqual(parseLockProbeOutput('node|t'), ['node', 't'], 'plain form still parsed');
-  assert.match(lockProbeScript(12), /^\$p = Get-Process -Id 12 /);
+  assert.match(lockProbeScript(12), /\[System\.Diagnostics\.Process\]::GetProcessById\(12\)/);
+  assert.ok(!/Get-Process|-Process\b/.test(lockProbeScript(12)), 'no cmdlet: cmdlet autoload hit the 15 s timeout on a CI runner');
+  // A pid that is gone: the script's own NO_PROCESS answer is stale; any other failure is unknown.
+  const ran = (res) => async () => ({ stdout: '', stderr: '', spawnError: null, timedOut: false, ...res });
+  assert.equal(await probeLockHolder(lock, { spawn: ran({ code: 3, stdout: 'NO_PROCESS\n' }), isAlive: alive, nowMs: now }), 'stale');
+  assert.equal(await probeLockHolder(lock, { spawn: ran({ code: 3, stdout: '' }), isAlive: alive, nowMs: now }), 'unknown');
+  assert.equal(await probeLockHolder(lock, { spawn: ran({ code: 1, stderr: 'Exception calling "GetProcessById"' }), isAlive: alive, nowMs: now }), 'unknown');
   assert.ok(/^[\x20-\x7e]*$/.test(lockProbeScript(12)), 'the script itself is ASCII');
 });
 
