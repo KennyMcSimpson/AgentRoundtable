@@ -1,0 +1,11 @@
+{
+  "name": "room-dev-app",
+  "productName": "圆桌",
+  "version": "0.1.0-dev",
+  "description": "圆桌：受治理多 agent 圆桌的桌面应用（Electron 外壳，内含 room-dev）。",
+  "private": true,
+  "type": "module",
+  "main": "main.mjs",
+  "author": "KennyMcSimpson",
+  "license": "MIT"
+}

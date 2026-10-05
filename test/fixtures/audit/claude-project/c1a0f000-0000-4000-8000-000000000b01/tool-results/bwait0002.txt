@@ -1,0 +1,3 @@
+NOTICE 本包很长（合成夹具）
+TURN attempt=b1-2-4d5e6f nonce=2a2b2c2d packet=C:/Users/fixture/room-dev/rooms/fx/packets/r1-B-b1-2-4d5e6f.md sha256=4444444444444444444444444444444444444444444444444444444444444444
+（包头之后的正文省略）

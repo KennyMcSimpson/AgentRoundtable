@@ -1,0 +1,68 @@
+@echo off
+setlocal EnableExtensions
+chcp 65001 >nul
+rem room-dev {{VERSION}} launcher, rendered by dist/build.mjs on {{BUILD_DATE}} (Node {{NODE_VERSION}}).
+rem Usage: 启动器.cmd [port]
+rem   Starts the lobby (room.mjs lobby --open): a loopback page where rooms and seats are created, each
+rem   agent gets its one sentence, and a room's UI is opened. The page opens in the default browser.
+rem   port    loopback port for the lobby (default: {{DEFAULT_PORT}}; a free port is used when it is busy)
+rem Rooms live under %USERPROFILE%\room-dev\rooms, or %ROOM_DEV_HOME%\rooms when ROOM_DEV_HOME is set:
+rem the same rule as appRoot() in lib/common.mjs. Never under AppData: an MSIX-packaged parent
+rem redirects AppData writes (INTERFACES 1).
+rem Closing this window stops the lobby and every room it opened.
+
+set "ROOT=%~dp0"
+set "PORT=%~1"
+if "%PORT%"=="" set "PORT={{DEFAULT_PORT}}"
+rem Rooms root: mirrors defaultRoomsRoot() = (ROOM_DEV_HOME or %USERPROFILE%\room-dev) + \rooms.
+set "ROOMS=%USERPROFILE%\room-dev\rooms"
+if defined ROOM_DEV_HOME set "ROOMS=%ROOM_DEV_HOME%\rooms"
+set "APP=%ROOT%app\room.mjs"
+set "NODE_EXE=%ROOT%node\node.exe"
+title 圆桌启动器 room-dev {{VERSION}}
+
+echo room-dev {{VERSION}}
+echo.
+echo 依赖声明：
+echo   - 你的 agent 要能运行一条本地命令（首次会弹它自己的权限提示）。
+echo   - Codex 席位需要唤醒推送（codex.exe 按 CODEX_CLI_PATH、config.toml、安装目录依次定位）。
+echo   - 内置 Pi 席位首次使用时按你的选择从 npm 安装；执行档需要 Git for Windows 或 PowerShell 工具。
+echo.
+
+if not exist "%APP%" (
+  echo 找不到 %APP%，包不完整。
+  pause
+  exit /b 9
+)
+
+if not exist "%NODE_EXE%" (
+  where node >nul 2>nul
+  if errorlevel 1 (
+    echo 找不到 Node 运行时：包内没有 node\node.exe（{{NODE_NOTE}}），PATH 上也没有 node。
+    echo 请安装 Node ^>= 22（https://nodejs.org）后重试。
+    pause
+    exit /b 9
+  )
+  set "NODE_EXE=node"
+  echo 使用 PATH 上的 node（{{NODE_NOTE}}）。
+)
+rem Same version probe as the dev launcher, for the bundled runtime and the PATH fallback alike.
+"%NODE_EXE%" -e "process.exit(Number(process.versions.node.split('.')[0]) >= 22 ? 0 : 1)"
+if errorlevel 1 (
+  echo 这个 node 版本太旧（%NODE_EXE%），需要 Node.js 22 或更新的版本（https://nodejs.org）。
+  pause
+  exit /b 9
+)
+
+echo 房间目录：%ROOMS%
+echo 正在启动圆桌启动器，浏览器会自动打开它。
+echo 不要关这个窗口：关掉它就退出启动器，并停止从启动器打开的房间。
+echo.
+
+"%NODE_EXE%" "%APP%" lobby --open --port %PORT%
+set "RC=%ERRORLEVEL%"
+if not "%RC%"=="0" (
+  echo 启动器退出，代码 %RC%。
+  pause
+)
+endlocal & exit /b %RC%

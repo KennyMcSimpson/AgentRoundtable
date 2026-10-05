@@ -1,0 +1,16 @@
+{
+  "name": "room-dev",
+  "private": true,
+  "version": "0.1.0-dev",
+  "license": "MIT",
+  "description": "Governed multi-agent room (working name): seat commands, room service with Work/Meet/Summary phases, artifact freeze and recompute, disclosure in snapshot copies, read-only audit, hosted Pi seat, loopback UI.",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.mjs\"",
+    "e2e": "node test/e2e.mjs",
+    "evidence": "node evidence/collect.mjs",
+    "app": "node dist/build-app.mjs",
+    "public-scan": "node dist/public-scan.mjs"
+  }
+}

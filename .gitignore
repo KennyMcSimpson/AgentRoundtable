@@ -1,0 +1,8 @@
+node_modules/
+*.tmp-*
+.room-outbox/
+dist/out/
+# evidence/collect.mjs output: holds the machine's absolute paths
+evidence/REPORT.md
+# internal records stay out of the public tree
+docs/internal/
