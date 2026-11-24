@@ -1,5 +1,5 @@
 /* ui/rt-chat.js - zero-dependency group-chat projection, Arena side-by-side comparison,
- * sticky approval inbox, and IME-safe composer helper for Roundtable.
+ * sticky approval inbox, and IME-safe composer helper for AgentRoundtable.
  * Classic ES2020 IIFE exposing globalThis.RoomChat (pure model functions work in Node vm).
  *
  * Security & correctness invariants:
@@ -12,8 +12,8 @@
 (function () {
   'use strict';
 
-  var LONG_SPEECH_CHAR_THRESHOLD = 360;
-  var LONG_SPEECH_LINE_THRESHOLD = 8;
+  var LONG_SPEECH_CHAR_THRESHOLD = 900;
+  var LONG_SPEECH_LINE_THRESHOLD = 18;
 
   function getProtocol() { return typeof globalThis !== 'undefined' ? globalThis.RoomProtocol : null; }
   function getMarkdown() { return typeof globalThis !== 'undefined' ? globalThis.RoomMarkdown : null; }
@@ -21,7 +21,7 @@
 
   function tr(lang, key, params) {
     var i18n = getI18n();
-    if (i18n && typeof i18n.t === 'function') return i18n.t(lang, key, params);
+    if (i18n && typeof i18n.t === 'function') return i18n.t(lang || 'en', key, params);
     return key;
   }
 
@@ -54,10 +54,11 @@
       return { seatId: id, family: 'antigravity', familyLabel: 'Antigravity', monogram: 'AG', isLead: isLead };
     }
     if (lane === 'codex-cli' || agent === 'codex-cli' || agent === 'codex-desktop' || /^codex/i.test(id)) {
-      return { seatId: id, family: 'codex', familyLabel: 'Codex', monogram: 'CX', isLead: isLead };
+      var codexLabel = agent === 'codex-desktop' ? 'Codex Desktop' : (agent === 'codex-cli' ? 'Codex CLI' : 'Codex');
+      return { seatId: id, family: 'codex', familyLabel: codexLabel, monogram: 'CX', isLead: isLead };
     }
     if (lane === 'gemini' || agent === 'gemini-cli' || /^gemini/i.test(id)) {
-      return { seatId: id, family: 'gemini', familyLabel: 'Gemini', monogram: 'GM', isLead: isLead };
+      return { seatId: id, family: 'gemini', familyLabel: agent === 'gemini-cli' ? 'Gemini CLI' : 'Gemini', monogram: 'GM', isLead: isLead };
     }
     if (agent === 'opencode' || /^opencode/i.test(id)) {
       return { seatId: id, family: 'opencode', familyLabel: 'OpenCode', monogram: 'OC', isLead: isLead };
@@ -72,7 +73,7 @@
       return { seatId: id, family: 'deepseek', familyLabel: 'DeepSeek', monogram: 'DS', isLead: isLead };
     }
 
-    var clean = String(id).replace(/[^A-Za-z0-9\u4e00-\u9fa5]/g, '');
+    var clean = String(id).replace(/[^A-Za-z0-9]/g, '');
     var monogram = clean ? clean.slice(0, 2).toUpperCase() : 'RT';
     return {
       seatId: id,
@@ -230,9 +231,13 @@
       if (!e) continue;
 
       if (e.kind === 'marker') {
-        var rm = /^第\s*(\d+)\s*轮开始/.exec(e.text || '');
-        if (rm) {
-          currentRound = Number(rm[1]);
+        var nextRound = num(e.roundId) !== null && e.roundId > 0 ? e.roundId : null;
+        if (nextRound === null) {
+          var rm = /^Round\s+(\d+)\s+started/i.exec(e.text || '');
+          if (rm) nextRound = Number(rm[1]);
+        }
+        if (nextRound !== null) {
+          currentRound = nextRound;
           ensureRound(currentRound, e.ts);
         }
         ensureRound(currentRound, e.ts).timeline.push({ kind: 'marker', seq: e.seq, ts: e.ts, tone: e.tone || 'info', text: e.text || '' });
@@ -547,7 +552,6 @@
       target = rounds.filter(function (r) { return r.roundId === requestedRoundId; })[0] || null;
     }
     if (!target) {
-      // Pick the latest round that has at least one bubble, else the last round.
       for (var i = rounds.length - 1; i >= 0; i -= 1) {
         if (rounds[i].bubbles.length > 0) { target = rounds[i]; break; }
       }
@@ -712,9 +716,13 @@
     return 'info';
   }
 
+  function claimBadge(doc, lang) {
+    return el(doc, 'span', { class: 'rt-claim-origin', text: tr(lang, 'chat.claimBadge') });
+  }
+
   function renderSegments(doc, segments, ctx) {
     var frag = doc.createDocumentFragment();
-    var lang = ctx.lang || 'zh-CN';
+    var lang = ctx.lang || 'en';
     var knownSeqSeatIds = ctx.knownSeqSeatIds || new Map();
     var renderedSeqs = ctx.renderedSeqs || new Set();
     var bubbleQuotes = ctx.quotes || [];
@@ -747,7 +755,7 @@
               }, ['↪ ', headerText])
             : el(doc, 'div', { class: 'rt-quote-head', text: '↪ ' + headerText });
           var bq = el(doc, 'blockquote', {
-            class: 'rt-quote' + (canJump ? ' is-clickable' : ''),
+            class: 'rt-quote' + (canJump ? ' is-clickable' : '') + (matchedQ && matchedQ.verified === false ? ' is-mismatch' : ''),
             'data-quote-seq': String(qSeg.seq),
           }, [
             el(doc, 'div', { class: 'rt-quote-top' }, [headNode, verBadge]),
@@ -760,11 +768,17 @@
         frag.appendChild(el(doc, 'div', { class: 'rt-claim-card', 'data-point-seq': String(seg.seq) }, [
           el(doc, 'div', { class: 'rt-claim-head' }, [
             el(doc, 'code', { class: 'rt-claim-tag', text: tr(lang, 'chat.claimPoint', { seq: seg.seq }) }),
+            claimBadge(doc, lang),
           ]),
           renderMdOrPre(doc, seg.text),
         ]));
       } else if (seg.type === 'assign') {
-        var assignChildren = [el(doc, 'div', { class: 'rt-claim-head' }, [el(doc, 'span', { text: tr(lang, 'chat.claimAssign') })])];
+        var assignChildren = [
+          el(doc, 'div', { class: 'rt-claim-head' }, [
+            el(doc, 'code', { class: 'rt-claim-tag', text: tr(lang, 'chat.claimAssign') }),
+            claimBadge(doc, lang),
+          ]),
+        ];
         if (seg.items.length) {
           assignChildren.push(el(doc, 'ul', { class: 'rt-assign-list' }, seg.items.map(function (row) {
             return el(doc, 'li', null, [el(doc, 'strong', { text: row.seatId }), ': ', row.task]);
@@ -777,6 +791,7 @@
           el(doc, 'div', { class: 'rt-claim-head' }, [
             el(doc, 'code', { class: 'rt-claim-tag', text: tr(lang, 'chat.claimVerdict', { verdict: seg.verdict }) }),
             seg.artifact ? el(doc, 'code', { class: 'rt-sha', text: shortSha(seg.artifact) }) : null,
+            claimBadge(doc, lang),
           ]),
           seg.reason ? renderMdOrPre(doc, seg.reason) : null,
         ]));
@@ -785,6 +800,7 @@
           el(doc, 'div', { class: 'rt-claim-head' }, [
             el(doc, 'code', { class: 'rt-claim-tag', text: tr(lang, 'chat.claimDisclose') }),
             el(doc, 'code', { class: 'rt-sha', text: seg.argv.join(' ') }),
+            claimBadge(doc, lang),
           ]),
           seg.reason ? el(doc, 'div', { class: 'rt-claim-body', text: seg.reason }) : null,
         ]));
@@ -792,6 +808,7 @@
         frag.appendChild(el(doc, 'div', { class: 'rt-claim-card', 'data-misquoted-seq': String(seg.seq) }, [
           el(doc, 'div', { class: 'rt-claim-head' }, [
             el(doc, 'code', { class: 'rt-claim-tag', text: tr(lang, 'chat.claimMisquoted', { seq: seg.seq }) }),
+            claimBadge(doc, lang),
           ]),
           seg.reason ? el(doc, 'div', { class: 'rt-claim-body', text: seg.reason }) : null,
         ]));
@@ -800,7 +817,10 @@
       } else if (seg.type === 'raw-marker') {
         if (seg.trailingText) {
           frag.appendChild(el(doc, 'div', { class: 'rt-raw-mark-block' }, [
-            el(doc, 'code', { class: 'rt-raw-marker', text: seg.raw }),
+            el(doc, 'div', { class: 'rt-claim-head' }, [
+              el(doc, 'code', { class: 'rt-raw-marker', text: seg.raw }),
+              claimBadge(doc, lang),
+            ]),
             el(doc, 'div', { class: 'rt-raw-mark-body', text: seg.trailingText }),
             seg.closingRaw ? el(doc, 'code', { class: 'rt-raw-marker', text: seg.closingRaw }) : null,
           ]));
@@ -816,9 +836,10 @@
     var children = [
       el(doc, 'span', { class: 'rt-chip solid ' + statusTone(v.verdict), text: tr(lang, 'chat.authVerdict', { verdict: v.verdict }) }),
     ];
-    if (includeSeat && v.seatId) children.push(el(doc, 'span', { class: 'rt-auth-meta', text: v.seatId }));
+    if (includeSeat && v.seatId) children.push(el(doc, 'span', { class: 'rt-auth-meta', text: 'Seat ' + v.seatId }));
     if (v.authorized === false) children.push(el(doc, 'span', { class: 'rt-chip warn', text: tr(lang, 'chat.nonReviewer') }));
-    if (v.tainted) children.push(el(doc, 'span', { class: 'rt-chip bad', text: 'tainted' }));
+    if (v.annotation && v.annotation !== 'none') children.push(el(doc, 'span', { class: 'rt-chip ' + statusTone(v.annotation), text: v.annotation }));
+    if (v.tainted && v.annotation !== 'tainted') children.push(el(doc, 'span', { class: 'rt-chip solid bad', text: 'tainted' }));
     if (v.verifiedInfo) {
       children.push(el(doc, 'span', {
         class: 'rt-chip solid ' + (v.verifiedInfo.verified ? 'ok' : 'warn'),
@@ -839,14 +860,14 @@
     (bubble.marks || []).forEach(function (mk) {
       wrap.appendChild(el(doc, 'div', { class: 'rt-auth-row' }, [
         el(doc, 'span', { class: 'rt-chip solid ' + statusTone(mk.status), text: tr(lang, 'chat.authMark', { status: statusLabel(lang, mk.status) }) }),
-        mk.markedBy ? el(doc, 'span', { class: 'rt-auth-meta', text: mk.markedBy }) : null,
+        mk.markedBy ? el(doc, 'span', { class: 'rt-auth-meta', text: 'by ' + mk.markedBy }) : null,
         mk.reason ? el(doc, 'span', { class: 'rt-auth-text', text: mk.reason }) : null,
       ]));
     });
     (bubble.points || []).forEach(function (pt) {
       wrap.appendChild(el(doc, 'div', { class: 'rt-auth-row' }, [
         el(doc, 'span', { class: 'rt-chip solid ' + statusTone(pt.status), text: tr(lang, 'chat.authPoint', { id: pt.itemId, status: statusLabel(lang, pt.status) }) }),
-        pt.seatId ? el(doc, 'span', { class: 'rt-auth-meta', text: pt.seatId }) : null,
+        pt.seatId ? el(doc, 'span', { class: 'rt-auth-meta', text: 'Seat ' + pt.seatId }) : null,
         el(doc, 'span', { class: 'rt-auth-text', text: pt.text + (pt.reason ? ' — ' + pt.reason : '') }),
       ]));
     });
@@ -857,21 +878,25 @@
   }
 
   function renderBubble(doc, bubble, chatModel, opts) {
-    var lang = opts.lang || 'zh-CN';
+    var lang = opts.lang || 'en';
     var expandedMap = opts.expandedMap || {};
     var isExpanded = !!expandedMap[bubble.key];
     var isCollapsed = bubble.collapsible && !isExpanded;
 
     var avatar = el(doc, 'div', { class: 'rt-avatar', 'aria-hidden': 'true', text: bubble.identity.monogram });
-    var metaItems = [
-      el(doc, 'strong', { class: 'rt-seat-name', text: bubble.seatId || '—' }),
+    var metaLeft = el(doc, 'div', { class: 'rt-meta-left' }, [
+      el(doc, 'strong', { class: 'rt-seat-name', text: 'Seat ' + (bubble.seatId || '—') }),
+      el(doc, 'span', { class: 'rt-meta-dot', text: '·' }),
+      el(doc, 'span', { class: 'rt-agent-label', text: bubble.identity.familyLabel }),
       bubble.identity.isLead ? el(doc, 'span', { class: 'rt-lead-crown', text: '★ ' + tr(lang, 'chat.leadBadge') }) : null,
       bubble.role && !bubble.identity.isLead ? el(doc, 'span', { class: 'rt-role-pill', text: tr(lang, 'role.' + bubble.role) }) : null,
-      el(doc, 'span', { class: 'rt-family-pill', text: bubble.identity.familyLabel }),
+      bubble.annotation && bubble.annotation !== 'none' ? el(doc, 'span', { class: 'rt-chip solid ' + statusTone(bubble.annotation), text: bubble.annotation }) : null,
+    ]);
+    var metaRight = el(doc, 'div', { class: 'rt-meta-right' }, [
+      bubble.escaped ? el(doc, 'span', { class: 'rt-chip warn', text: 'escaped ×' + bubble.escaped }) : null,
       bubble.seq !== null ? el(doc, 'code', { class: 'rt-seq-pill', text: '#' + bubble.seq }) : null,
-      bubble.escaped ? el(doc, 'span', { class: 'rt-chip warn', text: 'escaped ' + bubble.escaped }) : null,
-      bubble.ts ? el(doc, 'time', { text: fmtTime(bubble.ts) }) : null,
-    ];
+      bubble.ts ? el(doc, 'time', { class: 'rt-time', text: fmtTime(bubble.ts) }) : null,
+    ]);
 
     var bodyInner = el(doc, 'div', { class: 'rt-bubble-body' + (isCollapsed ? ' is-collapsed' : '') });
     bodyInner.appendChild(renderSegments(doc, bubble.segments, {
@@ -885,7 +910,10 @@
       bodyInner.appendChild(el(doc, 'div', { class: 'rt-trunc-note', text: tr(lang, 'chat.truncated') }));
     }
 
-    var bubbleBoxChildren = [bodyInner];
+    var bubbleBoxChildren = [
+      el(doc, 'div', { class: 'rt-meta' }, [metaLeft, metaRight]),
+      bodyInner,
+    ];
     if (bubble.collapsible) {
       bubbleBoxChildren.push(el(doc, 'button', {
         type: 'button',
@@ -910,22 +938,23 @@
     return el(doc, 'div', rowAttrs, [
       avatar,
       el(doc, 'div', { class: 'rt-col' }, [
-        el(doc, 'div', { class: 'rt-meta' }, metaItems),
         el(doc, 'div', { class: 'rt-bubble' }, bubbleBoxChildren),
       ]),
     ]);
   }
 
   function renderSummaryCard(doc, summary, chatModel, opts) {
-    var lang = opts.lang || 'zh-CN';
+    var lang = opts.lang || 'en';
     var children = [
       el(doc, 'div', { class: 'rt-summary-head' }, [
         el(doc, 'span', { class: 'rt-chip solid info', text: tr(lang, 'chat.summaryTitle', { version: summary.version !== undefined ? summary.version : '?' }) }),
-        summary.seatId ? el(doc, 'strong', { text: summary.seatId }) : null,
-        summary.seq !== null ? el(doc, 'code', { class: 'rt-seq-pill', text: '#' + summary.seq }) : null,
+        summary.seatId ? el(doc, 'strong', { class: 'rt-seat-name', text: 'Lead ' + summary.seatId }) : null,
+        summary.supersedes !== null && summary.supersedes !== undefined ? el(doc, 'span', { class: 'rt-chip warn', text: 'supersedes v' + summary.supersedes }) : null,
         summary.mergedMarkCount > 0 ? el(doc, 'span', { class: 'rt-chip ok', text: tr(lang, 'chat.summaryMerged', { n: summary.mergedMarkCount }) }) : null,
         summary.unanswered.length ? el(doc, 'span', { class: 'rt-chip bad', text: statusLabel(lang, 'unanswered') + ': ' + summary.unanswered.join(', ') }) : null,
-        summary.ts ? el(doc, 'time', { text: fmtTime(summary.ts) }) : null,
+        el(doc, 'span', { class: 'rt-spacer' }),
+        summary.seq !== null ? el(doc, 'code', { class: 'rt-seq-pill', text: '#' + summary.seq }) : null,
+        summary.ts ? el(doc, 'time', { class: 'rt-time', text: fmtTime(summary.ts) }) : null,
       ]),
     ];
     if (summary.segments && summary.segments.length) {
@@ -949,8 +978,9 @@
         return el(doc, 'div', { class: 'rt-auth-row' }, [
           el(doc, 'span', { class: 'rt-chip solid ' + (vf.verified ? 'ok' : 'warn'), text: tr(lang, vf.verified ? 'chat.verified' : 'chat.unverified') }),
           el(doc, 'code', { class: 'rt-sha', text: shortSha(vf.artifactSha) }),
-          vf.producer ? el(doc, 'span', { class: 'rt-auth-meta', text: vf.producer }) : null,
-          !vf.verified && vf.reason ? el(doc, 'span', { class: 'rt-auth-text', text: vf.reason }) : null,
+          vf.producer ? el(doc, 'span', { class: 'rt-auth-meta', text: 'Seat ' + vf.producer }) : null,
+          vf.by ? el(doc, 'span', { class: 'rt-auth-text', text: 'reviewed by ' + vf.by }) : null,
+          !vf.verified && vf.reason ? el(doc, 'span', { class: 'rt-chip warn', text: vf.reason }) : null,
         ]);
       })));
     }
@@ -961,12 +991,11 @@
 
   function renderGroupChat(doc, container, chatModel, opts) {
     opts = opts || {};
-    var lang = opts.lang || 'zh-CN';
+    var lang = opts.lang || 'en';
     var seatFilter = opts.seatFilter || '';
     var showMarkers = !!opts.showMarkers;
     clearNode(container);
 
-    // Filter bar (seat chips + marker toggle)
     var filterBar = el(doc, 'div', { class: 'rt-chat-toolbar' }, [
       el(doc, 'button', {
         type: 'button',
@@ -997,7 +1026,7 @@
     var stage = el(doc, 'div', { class: 'rt-stage' });
     var streamWrap = el(doc, 'div', { class: 'rt-stream' });
 
-    if (chatModel.pendingTask) {
+    if (chatModel.pendingTask && !opts.hideRoundTopic) {
       streamWrap.appendChild(el(doc, 'div', { class: 'rt-round-topic' }, [
         el(doc, 'strong', { text: tr(lang, 'chat.pendingTopic') }),
         chatModel.pendingTask,
@@ -1015,7 +1044,7 @@
           ]),
         ]),
       ];
-      if (rg.task) {
+      if (rg.task && !opts.hideRoundTopic) {
         sepChildren.push(el(doc, 'div', { class: 'rt-round-topic' }, [
           el(doc, 'strong', { text: tr(lang, 'chat.topicLabel') }),
           rg.task,
@@ -1032,9 +1061,13 @@
           renderedAny = true;
           group.appendChild(el(doc, 'div', { class: 'rt-user-bubble' }, [
             el(doc, 'div', { class: 'rt-meta' }, [
-              el(doc, 'span', { class: 'rt-chip solid user', text: tr(lang, 'chat.userMsg') }),
-              entry.msgSeq !== null && entry.msgSeq !== undefined ? el(doc, 'code', { class: 'rt-seq-pill', text: '#' + entry.msgSeq }) : null,
-              entry.ts ? el(doc, 'time', { text: fmtTime(entry.ts) }) : null,
+              el(doc, 'div', { class: 'rt-meta-left' }, [
+                el(doc, 'span', { class: 'rt-chip solid user', text: tr(lang, 'chat.userMsg') }),
+              ]),
+              el(doc, 'div', { class: 'rt-meta-right' }, [
+                entry.msgSeq !== null && entry.msgSeq !== undefined ? el(doc, 'code', { class: 'rt-seq-pill', text: '#' + entry.msgSeq }) : null,
+                entry.ts ? el(doc, 'time', { class: 'rt-time', text: fmtTime(entry.ts) }) : null,
+              ]),
             ]),
             renderMdOrPre(doc, entry.text),
           ]));
@@ -1087,24 +1120,24 @@
 
   function renderArenaView(doc, container, chatModel, opts) {
     opts = opts || {};
-    var lang = opts.lang || 'zh-CN';
+    var lang = opts.lang || 'en';
     var arena = buildArenaModel(chatModel, opts.selectedRoundId);
     clearNode(container);
 
     var header = el(doc, 'div', { class: 'rt-arena-header' }, [
-      el(doc, 'strong', { text: tr(lang, 'arena.title') }),
       el(doc, 'span', { class: 'rt-arena-round-label', text: tr(lang, 'arena.roundLabel') }),
-    ].concat(arena.availableRounds.map(function (rId) {
-      return el(doc, 'button', {
-        type: 'button',
-        class: 'rt-filter-chip' + (rId === arena.roundId ? ' is-active' : ''),
-        onclick: function () { if (opts.onSelectRound) opts.onSelectRound(rId); },
-        text: tr(lang, 'arena.latestRound', { round: rId }),
-      });
-    })));
+      el(doc, 'div', { class: 'rt-arena-pills' }, arena.availableRounds.map(function (rId) {
+        return el(doc, 'button', {
+          type: 'button',
+          class: 'rt-filter-chip' + (rId === arena.roundId ? ' is-active' : ''),
+          onclick: function () { if (opts.onSelectRound) opts.onSelectRound(rId); },
+          text: tr(lang, 'arena.latestRound', { round: rId }),
+        });
+      })),
+    ]);
     container.appendChild(header);
 
-    if (arena.task) {
+    if (arena.task && !opts.hideRoundTopic) {
       container.appendChild(el(doc, 'div', { class: 'rt-arena-topic' }, [
         el(doc, 'strong', { text: tr(lang, 'arena.syncTask') }),
         arena.task,
@@ -1118,33 +1151,35 @@
 
     var grid = el(doc, 'div', { class: 'rt-arena-grid' });
     arena.columns.forEach(function (col) {
+      var latestV = col.verdicts && col.verdicts.length ? col.verdicts[col.verdicts.length - 1] : null;
+      var msgLabel = col.bubbles.length === 1
+        ? tr(lang, 'arena.messagesCount', { n: 1 })
+        : tr(lang, 'arena.messagesCountPlural', { n: col.bubbles.length });
       var colHead = el(doc, 'div', { class: 'rt-arena-col-head' }, [
         el(doc, 'div', { class: 'rt-avatar sm', 'aria-hidden': 'true', text: col.identity.monogram }),
         el(doc, 'div', { class: 'rt-arena-col-title' }, [
-          el(doc, 'strong', { text: col.seatId }),
-          col.identity.isLead ? el(doc, 'span', { class: 'rt-lead-crown', text: '★' }) : null,
-          el(doc, 'span', { class: 'rt-family-pill', text: col.identity.familyLabel }),
+          el(doc, 'div', { class: 'rt-arena-seat-line' }, [
+            el(doc, 'strong', { text: 'Seat ' + col.seatId }),
+            col.identity.isLead ? el(doc, 'span', { class: 'rt-lead-crown', text: '★' }) : null,
+          ]),
+          el(doc, 'span', { class: 'rt-arena-agent', text: col.identity.familyLabel }),
         ]),
-        el(doc, 'span', { class: 'rt-arena-count', text: tr(lang, 'arena.messagesCount', { n: col.bubbles.length }) }),
+        latestV
+          ? el(doc, 'span', { class: 'rt-chip solid ' + statusTone(latestV.verdict), text: latestV.verdict })
+          : el(doc, 'span', { class: 'rt-arena-count', text: msgLabel }),
       ]);
 
       var colBody = el(doc, 'div', { class: 'rt-arena-col-body' });
+      var lastSeq = null;
       if (!col.bubbles.length) {
         colBody.appendChild(el(doc, 'div', { class: 'rt-empty', text: tr(lang, 'arena.noSpeech') }));
       } else {
         col.bubbles.forEach(function (b) {
+          if (b.seq !== null) lastSeq = b.seq;
           var msgCard = el(doc, 'div', { class: 'rt-arena-msg' }, [
             el(doc, 'div', { class: 'rt-arena-msg-meta' }, [
               b.seq !== null ? el(doc, 'code', { class: 'rt-seq-pill', text: '#' + b.seq }) : null,
-              b.ts ? el(doc, 'time', { text: fmtTime(b.ts) }) : null,
-              b.seq !== null && typeof opts.onJumpToChat === 'function'
-                ? el(doc, 'button', {
-                    type: 'button',
-                    class: 'rt-jump-chat-btn',
-                    onclick: function () { opts.onJumpToChat(b.seq); },
-                    text: tr(lang, 'arena.jumpChat'),
-                  })
-                : null,
+              b.ts ? el(doc, 'time', { class: 'rt-time', text: fmtTime(b.ts) }) : null,
             ]),
           ]);
           msgCard.appendChild(renderSegments(doc, b.segments, {
@@ -1160,14 +1195,26 @@
         });
       }
 
-      grid.appendChild(el(doc, 'section', { class: 'rt-arena-col', 'data-family': col.identity.family }, [colHead, colBody]));
+      var colNodes = [colHead, colBody];
+      if (lastSeq !== null && typeof opts.onJumpToChat === 'function') {
+        colNodes.push(el(doc, 'div', { class: 'rt-arena-col-foot' }, [
+          el(doc, 'button', {
+            type: 'button',
+            class: 'rt-jump-chat-btn',
+            onclick: function () { opts.onJumpToChat(lastSeq); },
+            text: tr(lang, 'arena.jumpChat'),
+          }),
+        ]));
+      }
+
+      grid.appendChild(el(doc, 'section', { class: 'rt-arena-col', 'data-family': col.identity.family }, colNodes));
     });
     container.appendChild(grid);
   }
 
   function renderApprovalInbox(doc, container, opts) {
     if (!container) return;
-    var lang = opts.lang || 'zh-CN';
+    var lang = opts.lang || 'en';
     var items = buildApprovalItems({ state: opts.state, derived: opts.derived });
     clearNode(container);
     if (!items.length) {
@@ -1178,6 +1225,7 @@
 
     var hasToken = !!opts.hasToken;
     var head = el(doc, 'div', { class: 'rt-inbox-head' }, [
+      el(doc, 'span', { class: 'rt-inbox-dot', 'aria-hidden': 'true' }),
       el(doc, 'strong', { text: tr(lang, 'inbox.title') }),
       el(doc, 'span', { class: 'rt-chip solid warn', text: tr(lang, 'inbox.count', { n: items.length }) }),
     ]);
@@ -1186,7 +1234,9 @@
     items.forEach(function (it) {
       var btns = [];
       var label = '';
+      var tag = '';
       if (it.kind === 'task-draft') {
+        tag = 'Task';
         label = tr(lang, 'inbox.taskDraft', { seat: it.seatId });
         btns.push(el(doc, 'button', {
           type: 'button', class: 'btn-small primary', disabled: !hasToken,
@@ -1199,6 +1249,7 @@
           text: tr(lang, 'inbox.viewTask'),
         }));
       } else if (it.kind === 'awaiting') {
+        tag = 'Timeout';
         label = tr(lang, 'inbox.awaiting', { seat: it.seatId, phase: it.phase });
         btns.push(el(doc, 'button', {
           type: 'button', class: 'btn-small primary', disabled: !hasToken,
@@ -1211,6 +1262,7 @@
           text: tr(lang, 'inbox.skip'),
         }));
       } else if (it.kind === 'reconcile') {
+        tag = 'Reconcile';
         label = tr(lang, 'inbox.reconcile', { attempt: it.attemptId, seat: it.seatId });
         btns.push(el(doc, 'button', {
           type: 'button', class: 'btn-small primary', disabled: !hasToken,
@@ -1223,6 +1275,7 @@
           text: tr(lang, 'inbox.void'),
         }));
       } else if (it.kind === 'disclose') {
+        tag = 'Disclose';
         label = tr(lang, 'inbox.disclose', { seat: it.seatId, argv: it.argv });
         btns.push(el(doc, 'button', {
           type: 'button', class: 'btn-small primary', disabled: !hasToken,
@@ -1239,7 +1292,10 @@
         }));
       }
       list.appendChild(el(doc, 'div', { class: 'rt-inbox-row', 'data-inbox-kind': it.kind }, [
-        el(doc, 'span', { class: 'rt-inbox-text', text: label }),
+        el(doc, 'div', { class: 'rt-inbox-left' }, [
+          el(doc, 'span', { class: 'rt-inbox-tag', text: tag }),
+          el(doc, 'span', { class: 'rt-inbox-text', text: label }),
+        ]),
         el(doc, 'div', { class: 'rt-inbox-actions' }, btns),
       ]));
     });

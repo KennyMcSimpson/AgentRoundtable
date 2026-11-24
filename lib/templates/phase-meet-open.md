@@ -1,1 +1,1 @@
-本回合任务（开题）：用三到八句话说明你对任务的理解、各席位要做什么、验收标准是什么。不要自己动手改文件。
+Turn task (opening): in three to eight sentences, state your understanding of the task, what each seat should do and the acceptance criteria. Do not edit files yourself.

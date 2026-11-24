@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { scenario, invariants } from '../cases/04-late-submit-after-void.test.mjs';
 
-test('#4 变异 no-attempt-check：作废后的迟到提交被接受，旧回合复活，用例变红', async () => {
+test('#4 mutation no-attempt-check: late submission after void is accepted, reviving the old turn, and the case fails', async () => {
   const r = await scenario({ mutate: 'no-attempt-check' });
   try {
     assert.deepEqual(r.sim.state().mutate, ['no-attempt-check']);

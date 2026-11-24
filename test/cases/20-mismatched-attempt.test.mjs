@@ -1,4 +1,4 @@
-// Plan §13.1 #20 (仿真 +变异). Mutation: test/mutations/20-no-attempt-check.test.mjs.
+// Plan §13.1 #20 (simulation + mutation). Mutation: test/mutations/20-no-attempt-check.test.mjs.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createSim, attemptOutcomes, isMain } from '../../sim/driver.mjs';
@@ -8,20 +8,20 @@ export const BOGUS = 'a1-1-ffffff';
 
 export async function scenario({ mutate } = {}) {
   const sim = await createSim({ preset: 'discussion', mutate, seats: [{ seatId: 'A', role: 'lead' }, { seatId: 'B', role: 'participant' }] });
-  await sim.admin({ cmd: 'task', text: '错配 attemptId' });
+  await sim.admin({ cmd: 'task', text: 'Mismatched attemptId' });
   await sim.admin({ cmd: 'start', order: ['A', 'B'] });
   const A = createScriptedSeat({
     seatId: 'A',
     script: [
       { wait: {} },
-      { submit: 'MISMATCH 错配 attempt 的提交', attempt: BOGUS },
-      { point: { seq: 1, text: '错配 attempt 的要点' }, attempt: BOGUS },
-      { submit: 'A 正确 attempt 的开题' },
+      { submit: 'MISMATCH submission with wrong attemptId', attempt: BOGUS },
+      { point: { seq: 1, text: 'Point with mismatched attemptId' }, attempt: BOGUS },
+      { submit: 'A opening with valid attemptId' },
       { wait: {} },
-      { submit: 'A 汇总' },
+      { submit: 'A summary' },
     ],
   });
-  const B = createScriptedSeat({ seatId: 'B', script: [{ wait: {} }, { submit: 'B 发言' }] });
+  const B = createScriptedSeat({ seatId: 'B', script: [{ wait: {} }, { submit: 'B speech' }] });
   await sim.run([A, B]);
   return { sim, A };
 }
@@ -45,7 +45,7 @@ export function invariants({ sim, A }) {
 }
 
 if (isMain(import.meta.url)) {
-  test('#20 错配 attemptId 的提交：丢弃并记账（submission_rejected STALE_ATTEMPT），持有的 attempt 不受影响', async () => {
+  test('#20 Submission with mismatched attemptId: dropped and recorded (submission_rejected STALE_ATTEMPT), held attempt unaffected', async () => {
     const r = await scenario();
     await r.sim.check(() => invariants(r));
   });

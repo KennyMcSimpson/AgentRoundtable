@@ -1,10 +1,10 @@
-// Plan §13.1 #7 (仿真): one seat answers `room pass`.
+// Plan §13.1 #7 (simulation): one seat answers `room pass`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createSim, FAKE_CODEX } from '../../sim/driver.mjs';
 import { createScriptedSeat } from '../../sim/scripted-seat.mjs';
 
-test('#7 一席位 room pass：其他席位仍被唤醒', async () => {
+test('#7 One seat runs room pass: other seats are still woken', async () => {
   const sim = await createSim({
     preset: 'discussion',
     seats: [
@@ -14,11 +14,11 @@ test('#7 一席位 room pass：其他席位仍被唤醒', async () => {
     ],
   });
   await sim.check(async () => {
-    await sim.admin({ cmd: 'task', text: 'pass 不阻塞' });
+    await sim.admin({ cmd: 'task', text: 'Pass does not block' });
     await sim.admin({ cmd: 'start', order: ['A', 'B', 'C'] });
-    const A = createScriptedSeat({ seatId: 'A', script: [{ wait: {} }, { submit: 'A 开题' }, { wait: {} }, { submit: 'A 汇总' }] });
+    const A = createScriptedSeat({ seatId: 'A', script: [{ wait: {} }, { submit: 'A opening' }, { wait: {} }, { submit: 'A summary' }] });
     const B = createScriptedSeat({ seatId: 'B', script: [{ wait: {} }, { pass: true }] });
-    const C = createScriptedSeat({ seatId: 'C', script: [{ wait: {} }, { submit: 'C 发言' }] });
+    const C = createScriptedSeat({ seatId: 'C', script: [{ wait: {} }, { submit: 'C speech' }] });
     await sim.run([A, B, C]);
     const bAcc = sim.lastEvent('submission_accepted', (e) => e.seatId === 'B');
     assert.equal(bAcc.kind, 'pass');

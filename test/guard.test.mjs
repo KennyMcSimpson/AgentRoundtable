@@ -78,7 +78,7 @@ test('atomicWrite that cannot rename removes its tmp file and rethrows; target k
 test('atomicWrite survives a concurrent reader process (Windows share modes) and leaves no tmp files', async () => {
   const root = tempRoot();
   try {
-    const dir = path.join(root, '房间 目录');
+    const dir = path.join(root, 'café dir');
     fs.mkdirSync(dir, { recursive: true });
     const target = path.join(dir, 'state.json');
     const g = createGuard({ allowed: [dir], logPath: path.join(dir, 'write-log.jsonl'), who: 'service' });

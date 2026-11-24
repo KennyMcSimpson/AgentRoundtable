@@ -6,7 +6,7 @@ import { testRunsRoot } from '../lib/common.mjs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {
-  spawnClean, buildCleanEnv, findOnPath, killTree, ENV_WHITELIST, IMPLICIT_WIN32_VARS,
+  spawnClean, buildCleanEnv, findOnPath, killTree, ENV_WHITELIST, IMPLICIT_WIN32_VARS, IMPLICIT_DARWIN_VARS,
   DEFAULT_TIMEOUT_MS, DEFAULT_MAX_OUTPUT_BYTES,
 } from '../lib/spawn.mjs';
 import { findCodex, codexPathFromConfig, codexHome } from '../lib/codex.mjs';
@@ -92,7 +92,7 @@ test('spawnClean validates arguments synchronously', () => {
 });
 
 test('spawnClean input: written to the child stdin and closed; never copied into argv, env or the result', async () => {
-  const secret = `in-${crypto.randomBytes(6).toString('hex')}-中文`;
+  const secret = `in-${crypto.randomBytes(6).toString('hex')}-café`;
   const script = 'let b=[];process.stdin.on("data",(c)=>b.push(c));process.stdin.on("end",()=>{const s=Buffer.concat(b).toString("utf8");process.stdout.write(JSON.stringify({len:s.length,sha:require("crypto").createHash("sha256").update(s).digest("hex"),argv:process.argv,env:process.env}))})';
   const r = await spawnClean(NODE, ['-e', script], { input: Buffer.from(`${secret}\n`, 'utf8'), timeoutMs: 30_000 });
   assert.equal(r.code, 0, r.stderr);
@@ -132,7 +132,12 @@ test('spawnClean child env is whitelist + explicit keys only (contract 3, #42)',
     const childEnv = JSON.parse(r.stdout);
     assert.equal('ROOM_SPAWN_TEST_SECRET' in childEnv, false);
     assert.equal(childEnv.ROOM_EXTRA, 'yes');
-    const allowed = new Set([...ENV_WHITELIST, 'ROOM_EXTRA', ...(WIN ? IMPLICIT_WIN32_VARS : [])].map((k) => k.toUpperCase()));
+    const allowed = new Set([
+      ...ENV_WHITELIST,
+      'ROOM_EXTRA',
+      ...(WIN ? IMPLICIT_WIN32_VARS : []),
+      ...(process.platform === 'darwin' ? IMPLICIT_DARWIN_VARS : []),
+    ].map((k) => k.toUpperCase()));
     const offenders = Object.keys(childEnv).filter((k) => !k.startsWith('=') && !allowed.has(k.toUpperCase()));
     assert.deepEqual(offenders, [], `unexpected env keys reached the child: ${offenders.join(', ')}`);
   } finally {
@@ -148,16 +153,16 @@ test('spawnClean reads whitelist values from an injected source', async () => {
 });
 
 test('spawnClean never goes through a shell: metacharacters arrive as literal arguments', async () => {
-  const args = ['a && echo pwned', '%PATH%', '$HOME', '"quoted"', '中文 参数', 'tab\there'];
+  const args = ['a && echo pwned', '%PATH%', '$HOME', '"quoted"', 'café arg', 'tab\there'];
   const r = await spawnClean(NODE, ['-e', 'console.log(JSON.stringify(process.argv.slice(1)))', ...args]);
   assert.equal(r.code, 0);
   assert.deepEqual(JSON.parse(r.stdout), args);
 });
 
-test('spawnClean works with a cwd containing Chinese characters and spaces', async () => {
+test('spawnClean works with a cwd containing non-ASCII characters and spaces', async () => {
   const root = tempRoot();
   try {
-    const cwd = path.join(root, '中文 目录 test');
+    const cwd = path.join(root, 'café dir test');
     fs.mkdirSync(cwd, { recursive: true });
     const r = await spawnClean(NODE, ['-e', 'console.log(process.cwd())'], { cwd });
     assert.equal(r.code, 0);
@@ -271,7 +276,7 @@ test('findCodex order: CODEX_CLI_PATH, then config.toml, then the Desktop bin di
     fs.writeFileSync(path.join(env.PATH, 'codex.exe'), 'MZ');
     assert.equal(findCodex({ env }), path.join(desk, 'codex.exe'), 'Desktop bin beats PATH');
 
-    const cfgExe = path.join(root, '配置 目录', 'codex.exe');
+    const cfgExe = path.join(root, 'café config', 'codex.exe');
     fs.mkdirSync(path.dirname(cfgExe), { recursive: true });
     fs.writeFileSync(cfgExe, 'MZ');
     const toml = `model = "x"\n\n[mcp_servers.node_repl.env]\nCODEX_HOME = "C:\\\\x"\nCODEX_CLI_PATH = "${cfgExe.replace(/\\/g, '\\\\')}"\n`;

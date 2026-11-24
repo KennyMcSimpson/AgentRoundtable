@@ -165,9 +165,9 @@ test('submission records: proof binds token, attempt and body/payload', () => {
   assert.ok(verifySubmissionProof(sp, 't', Buffer.from('hi')));
   assert.ok(!verifySubmissionProof(sp, 't', Buffer.from('changed')));
   assert.ok(!verifySubmissionProof(sp, 'other', Buffer.from('hi')));
-  const st = buildSubmission({ seatId: 'B', attemptId: 'a1', token: 't', kind: 'point', payload: { seq: 2, text: '要点' } });
+  const st = buildSubmission({ seatId: 'B', attemptId: 'a1', token: 't', kind: 'point', payload: { seq: 2, text: 'key point' } });
   assert.equal(st.kind, 'point');
-  assert.deepEqual(st.payload, { seq: 2, text: '要点' });
+  assert.deepEqual(st.payload, { seq: 2, text: 'key point' });
   const roundTrip = JSON.parse(JSON.stringify(st));
   assert.ok(verifySubmissionProof(roundTrip, 't'));
   roundTrip.payload.seq = 3;
@@ -243,7 +243,7 @@ test('admin init --id alone lands under defaultRoomsRoot()', () => {
   } finally { if (prev === undefined) delete process.env.ROOM_DEV_HOME; else process.env.ROOM_DEV_HOME = prev; }
 });
 
-test('MSIX virtualization: init and add-seat refuse with a Chinese explanation (injected redirect)', () => {
+test('MSIX virtualization: init and add-seat refuse with an English explanation (injected redirect)', () => {
   const root = tempRoot();
   const packaged = (p) => ({ asked: path.resolve(p), real: path.join('C:\\Users\\u\\AppData\\Local\\Packages\\Claude_pzs8sxrjxfjjc\\LocalCache\\Local', path.basename(p)), packaged: true });
   const msg = locationProblem(path.join(root, 'x'), { redirect: packaged });
@@ -253,7 +253,7 @@ test('MSIX virtualization: init and add-seat refuse with a Chinese explanation (
   assert.equal(locationProblem(root, { redirect: noRedirect }), null);
   // The message shows paths through fwd(), which resolves on the host OS: the literal D:/elsewhere on
   // Windows, the path fwd() makes of that Windows path elsewhere (Linux CI).
-  assert.ok(locationProblem(root, { redirect: (p) => ({ asked: p, real: 'D:\\elsewhere', packaged: false }) }).includes(`真实位置是 ${fwd('D:\\elsewhere')}（`));
+  assert.ok(locationProblem(root, { redirect: (p) => ({ asked: p, real: 'D:\\elsewhere', packaged: false }) }).includes(`is ${fwd('D:\\elsewhere')} (`));
 
   const c = capture({ redirect: packaged });
   assert.throws(() => ADMIN_COMMANDS.init({ dir: path.join(root, 'room'), id: 'v', _: ['init'] }, c.io), (e) => e instanceof CliError && /MSIX/.test(e.message) && e.exitCode === 9);
@@ -263,7 +263,7 @@ test('MSIX virtualization: init and add-seat refuse with a Chinese explanation (
   testGuard(root).mkdir(path.join(root, 'cwd-v'));
   const onlyCwd = (p) => (path.resolve(p).includes(`${path.sep}cwd-v`) ? packaged(p) : null);
   const c2 = capture({ redirect: onlyCwd });
-  assert.throws(() => ADMIN_COMMANDS['add-seat']({ dir: path.join(root, 'room2'), seat: 'A', role: 'reviewer', cwd: path.join(root, 'cwd-v'), _: ['add-seat'] }, c2.io), /席位工作目录.*MSIX/s);
+  assert.throws(() => ADMIN_COMMANDS['add-seat']({ dir: path.join(root, 'room2'), seat: 'A', role: 'reviewer', cwd: path.join(root, 'cwd-v'), _: ['add-seat'] }, c2.io), /seat working directory.*MSIX/s);
   assert.equal(readJson(path.join(root, 'room2', 'room.json')).seats.length, 0, 'refused seat is not registered');
 });
 
@@ -275,7 +275,7 @@ test('real link redirection: a seat cwd reached through a junction/symlink is re
   try { fs.symlinkSync(target, link, WIN ? 'junction' : 'dir'); } catch (e) { t.skip(`cannot create link: ${e.code}`); return; }
   const c = capture();
   ADMIN_COMMANDS.init({ dir: path.join(root, 'room'), id: 'j', _: ['init'] }, c.io);
-  assert.throws(() => ADMIN_COMMANDS['add-seat']({ dir: path.join(root, 'room'), seat: 'A', role: 'reviewer', cwd: link, _: ['add-seat'] }, c.io), /真实位置是/);
+  assert.throws(() => ADMIN_COMMANDS['add-seat']({ dir: path.join(root, 'room'), seat: 'A', role: 'reviewer', cwd: link, _: ['add-seat'] }, c.io), /real location of/);
   assert.equal(ADMIN_COMMANDS['add-seat']({ dir: path.join(root, 'room'), seat: 'A', role: 'reviewer', cwd: target, _: ['add-seat'] }, c.io), 0, c.text());
   assert.equal(realOf(path.join(link, 'not-yet')).toLowerCase(), path.join(fs.realpathSync.native(target), 'not-yet').replace(/^\\\\\?\\/, '').toLowerCase());
 });
@@ -314,7 +314,7 @@ test('add-seat records agent, defaults, reviews, hosted, wake, audit baseline; w
   const p = readJson(path.join(roomDir, 'seats', 'P', 'seat.json'));
   assert.deepEqual(p.hosted, { kind: 'pi', tier: 'discussion' });
   assert.equal(p.agent, 'hosted-pi');
-  assert.match(fs.readFileSync(path.join(roomDir, 'seats', 'P', 'JOIN.md'), 'utf8'), /内置 Pi 托管/);
+  assert.match(fs.readFileSync(path.join(roomDir, 'seats', 'P', 'JOIN.md'), 'utf8'), /hosted by built-in Pi/);
   const room = readJson(path.join(roomDir, 'room.json'));
   assert.deepEqual(room.seats.map((s) => s.seatId), ['A', 'B', 'P']);
   for (const s of room.seats) assert.equal(s.joinSha256, sha256(fs.readFileSync(path.join(roomDir, 'seats', s.seatId, 'JOIN.md'))));
@@ -342,7 +342,7 @@ test('add-seat records agent, defaults, reviews, hosted, wake, audit baseline; w
   assert.throws(() => ADMIN_COMMANDS['set-audit']({ dir: roomDir, seat: 'B', 'thread-id': 'a b', _: ['set-audit'] }, c.io), /--thread-id/);
   // NI-5: a Codex thread id must be a full uuid; a prefix or a name would register nothing.
   for (const bad of ['0199-abc', 'th-123', '01a0f000', 'x01a0f000-0000-7000-8000-000000000001', '01a0f000-0000-7000-8000-000000000001-copy']) {
-    assert.throws(() => ADMIN_COMMANDS['set-audit']({ dir: roomDir, seat: 'A', kind: 'codex', 'thread-id': bad, _: ['set-audit'] }, c.io), /--thread-id 必须是 Codex 线程的完整 UUID/, bad);
+    assert.throws(() => ADMIN_COMMANDS['set-audit']({ dir: roomDir, seat: 'A', kind: 'codex', 'thread-id': bad, _: ['set-audit'] }, c.io), /--thread-id must be a full Codex thread UUID/, bad);
   }
   assert.equal(readJson(path.join(roomDir, 'seats', 'A', 'seat.json')).audit.threadId, '01a0f000-0000-7000-8000-0000000000ef', 'a refused id changes nothing');
 });
@@ -350,7 +350,7 @@ test('add-seat records agent, defaults, reviews, hosted, wake, audit baseline; w
 test('admin export delegates to lib/export.mjs and never writes into the room dir', async () => {
   const fake = makeRoom();
   const c = capture();
-  await assert.rejects(() => ADMIN_COMMANDS.export({ dir: fake.roomDir, out: path.join(fake.roomDir, 'x.zip'), _: ['export'] }, c.io), /不能写进房间目录/);
+  await assert.rejects(() => ADMIN_COMMANDS.export({ dir: fake.roomDir, out: path.join(fake.roomDir, 'x.zip'), _: ['export'] }, c.io), /cannot be written inside the room directory/);
   const out = path.join(fake.root, 'exports', 'r1.zip');
   const code = await ADMIN_COMMANDS.export({ dir: fake.roomDir, out, redact: true, _: ['export'] }, c.io);
   assert.equal(code, 0, c.text());
@@ -367,23 +367,23 @@ test('add-seat refusals: containment, bad flags, review cycle, running service',
   for (const d of ['c', 'c1', 'c2', 'c3', 'c4', 'c5', 'c6']) g.mkdir(path.join(root, d));
   // A missing seat cwd is refused, not created: the room never writes a seat cwd (NI-13).
   const missing = path.join(root, 'not-created');
-  assert.throws(add({ seat: 'M', cwd: missing }), (e) => e instanceof CliError && /不存在；请先自己创建它/.test(e.message));
+  assert.throws(add({ seat: 'M', cwd: missing }), (e) => e instanceof CliError && /does not exist; create it first/.test(e.message));
   assert.ok(!fs.existsSync(missing), 'add-seat did not create the missing cwd');
   g.writeFile(path.join(root, 'a-file'), 'x');
-  assert.throws(add({ seat: 'M', cwd: path.join(root, 'a-file') }), /不是目录/);
+  assert.throws(add({ seat: 'M', cwd: path.join(root, 'a-file') }), /is not a directory/);
   assert.ok(!readJsonl(path.join(roomDir, 'write-log.jsonl')).some((r) => !isInside(r.path, roomDir)), 'admin wrote only inside the room');
-  assert.throws(add({ seat: 'X', cwd: path.join(roomDir, 'inside') }), /互相包含/);
-  assert.throws(add({ seat: 'X', cwd: root }), /互相包含/);
+  assert.throws(add({ seat: 'X', cwd: path.join(roomDir, 'inside') }), /must not contain each other/);
+  assert.throws(add({ seat: 'X', cwd: root }), /must not contain each other/);
   assert.throws(add({ seat: 'X', cwd: path.join(root, 'c'), agent: 'notreal' }), /--agent/);
   assert.throws(add({ seat: 'X', cwd: path.join(root, 'c'), hosted: 'pi:god' }), /--hosted/);
   assert.throws(add({ seat: 'X', cwd: path.join(root, 'c'), tier: 'root' }), /--tier/);
   assert.throws(add({ seat: 'X', cwd: path.join(root, 'c'), wait: 'forever' }), /--wait/);
   assert.throws(add({ seat: 'bad id', cwd: path.join(root, 'c') }), /--seat/);
-  assert.throws(add({ seat: 'X', cwd: path.join(root, 'c'), reviews: 'X' }), /不能审查自己/);
+  assert.throws(add({ seat: 'X', cwd: path.join(root, 'c'), reviews: 'X' }), /cannot review itself/);
   assert.equal(add({ seat: 'R1', cwd: path.join(root, 'c1'), reviews: 'R2' })(), 0);
-  assert.throws(add({ seat: 'R2', cwd: path.join(root, 'c2'), reviews: 'R1' }), /成环/);
+  assert.throws(add({ seat: 'R2', cwd: path.join(root, 'c2'), reviews: 'R1' }), /Review cycle/);
   assert.equal(add({ seat: 'L1', role: 'lead', cwd: path.join(root, 'c3') })(), 0);
-  assert.throws(add({ seat: 'L2', role: 'lead', cwd: path.join(root, 'c4') }), /主力只能有一个/);
+  assert.throws(add({ seat: 'L2', role: 'lead', cwd: path.join(root, 'c4') }), /Only one lead seat is allowed/);
   assert.throws(add({ seat: 'L1', cwd: path.join(root, 'c6') }), /seat L1 exists/);
   const svc = createGuard({ allowed: [roomDir], logPath: path.join(roomDir, 'fake-service-log.jsonl'), who: 'fake-service' });
   svc.atomicWrite(path.join(roomDir, 'service.lock'), JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }));
@@ -415,7 +415,7 @@ test('room inside a governed git repository is refused at add-seat and at init (
 
     // init: a room anywhere inside the repo is refused before anything is written.
     const inRepo = path.join(repo, 'rooms', 'x');
-    assert.throws(() => ADMIN_COMMANDS.init({ dir: inRepo, id: 'x', _: ['init'] }, c.io), (e) => e instanceof CliError && /git 仓库 .*repo 之内/.test(e.message), gitKind);
+    assert.throws(() => ADMIN_COMMANDS.init({ dir: inRepo, id: 'x', _: ['init'] }, c.io), (e) => e instanceof CliError && /git repository .*repo;/.test(e.message), gitKind);
     assert.ok(!fs.existsSync(path.join(repo, 'rooms')), `${gitKind}: nothing created inside the repo`);
 
     // add-seat: a room that already exists inside the seat's repo (e.g. created before .git appeared).
@@ -424,7 +424,7 @@ test('room inside a governed git repository is refused at add-seat and at init (
     assert.equal(ADMIN_COMMANDS.init({ dir: lateRoom, id: 'y', _: ['init'] }, c.io), 0);
     g.mkdir(path.join(late, 'app'));
     if (gitKind === 'dir') g.mkdir(path.join(late, '.git')); else g.writeFile(path.join(late, '.git'), 'gitdir: elsewhere\n');
-    assert.throws(() => ADMIN_COMMANDS['add-seat']({ dir: lateRoom, seat: 'A', role: 'reviewer', cwd: path.join(late, 'app'), _: ['add-seat'] }, c.io), (e) => /房间目录 .* 在席位工作目录 .*app 所属的 git 仓库 .*late 之内/.test(e.message), gitKind);
+    assert.throws(() => ADMIN_COMMANDS['add-seat']({ dir: lateRoom, seat: 'A', role: 'reviewer', cwd: path.join(late, 'app'), _: ['add-seat'] }, c.io), (e) => /Room directory .* is inside git repository .*late of seat working directory .*app/.test(e.message), gitKind);
     assert.deepEqual(readJson(path.join(lateRoom, 'room.json')).seats, [], `${gitKind}: refused seat not registered`);
 
     // A room outside every repo, with a seat cwd inside a repo, is accepted.
@@ -441,10 +441,10 @@ test('admin queue files: {cmd, ...params, token, ts} for every queued command', 
   const { roomDir, root } = fake;
   const g = testGuard(root);
   const draft = path.join(root, 'draft.md');
-  g.writeFile(draft, '- B: 实现 --strict | 验收: ["node","--test"]\n');
+  g.writeFile(draft, '- B: implement --strict | acceptance: ["node","--test"]\n');
   const sha = 'a'.repeat(64);
   const cases = [
-    [['task'], { text: '做 X' }, { cmd: 'task', text: '做 X' }],
+    [['task'], { text: 'do X' }, { cmd: 'task', text: 'do X' }],
     [['start'], { order: 'A, B,A' }, { cmd: 'start', order: ['A', 'B', 'A'] }],
     [['cancel'], {}, { cmd: 'cancel' }],
     [['skip'], {}, { cmd: 'skip' }],
@@ -452,16 +452,16 @@ test('admin queue files: {cmd, ...params, token, ts} for every queued command', 
     [['retry'], { seat: 'B' }, { cmd: 'retry', seatId: 'B' }],
     [['wake'], { seat: 'A' }, { cmd: 'wake', seatId: 'A' }],
     [['close'], {}, { cmd: 'close' }],
-    [['say'], { text: '新消息' }, { cmd: 'say', text: '新消息' }],
+    [['say'], { text: 'new message' }, { cmd: 'say', text: 'new message' }],
     [['interrupt'], {}, { cmd: 'interrupt' }],
-    [['interrupt'], { text: '停' }, { cmd: 'interrupt', text: '停' }],
+    [['interrupt'], { text: 'stop' }, { cmd: 'interrupt', text: 'stop' }],
     [['confirm-task'], {}, { cmd: 'confirm-task' }],
-    [['confirm-task'], { file: draft }, { cmd: 'confirm-task', assignments: [{ seatId: 'B', text: '实现 --strict', acceptance: [['node', '--test']] }] }],
+    [['confirm-task'], { file: draft }, { cmd: 'confirm-task', assignments: [{ seatId: 'B', text: 'implement --strict', acceptance: [['node', '--test']] }] }],
     [['approve-disclose', 'dsc-1'], {}, { cmd: 'approve-disclose', id: 'dsc-1' }],
-    [['deny-disclose', 'dsc-2'], { reason: '不必要' }, { cmd: 'deny-disclose', id: 'dsc-2', reason: '不必要' }],
+    [['deny-disclose', 'dsc-2'], { reason: 'unnecessary' }, { cmd: 'deny-disclose', id: 'dsc-2', reason: 'unnecessary' }],
     [['accept-stale', sha], {}, { cmd: 'accept-stale', manifestSha: sha }],
     [['reverse'], {}, { cmd: 'reverse' }],
-    [['reassign'], { seat: 'B', to: 'A', text: '换人' }, { cmd: 'reassign', seatId: 'B', toSeatId: 'A', text: '换人' }],
+    [['reassign'], { seat: 'B', to: 'A', text: 'handoff' }, { cmd: 'reassign', seatId: 'B', toSeatId: 'A', text: 'handoff' }],
     [['reconcile', 'a1-2-ff', 'void'], {}, { cmd: 'reconcile', attemptId: 'a1-2-ff', action: 'void' }],
     [['reconcile', 'a1-2-ff', 'replay'], {}, { cmd: 'reconcile', attemptId: 'a1-2-ff', action: 'replay' }],
   ];
@@ -492,8 +492,8 @@ test('admin queue files: {cmd, ...params, token, ts} for every queued command', 
     [['confirm-task'], { file: path.join(root, 'missing.md') }],
   ];
   for (const [pos, flags] of bad) assert.throws(() => ADMIN_COMMANDS[pos[0]]({ dir: roomDir, _: pos, ...flags }, c.io), CliError, pos.join(' '));
-  g.writeFile(path.join(root, 'bad-draft.md'), '- 没有席位\n');
-  assert.throws(() => ADMIN_COMMANDS['confirm-task']({ dir: roomDir, _: ['confirm-task'], file: path.join(root, 'bad-draft.md') }, c.io), /无法解析/);
+  g.writeFile(path.join(root, 'bad-draft.md'), '- no seat id\n');
+  assert.throws(() => ADMIN_COMMANDS['confirm-task']({ dir: roomDir, _: ['confirm-task'], file: path.join(root, 'bad-draft.md') }, c.io), /Unable to parse/);
   assert.equal(fake.queued().length, before, 'refused commands queue nothing');
 });
 
@@ -518,12 +518,12 @@ test('pi-key: never written to disk; sent only over loopback to a service starte
   const c = capture({ env: { ROOM_PI_API_KEY: KEY } });
   const pi = (args, io = c.io) => ADMIN_COMMANDS['pi-key']({ dir: roomDir, _: ['pi-key'], ...args }, io);
   // Without --port there is no handoff at all: the command explains the in-memory ways and writes nothing.
-  await assert.rejects(pi({}), (e) => e instanceof CliError && /不再经文件或 admin-queue/.test(e.message) && /ROOM_PI_API_KEY/.test(e.message) && /--pi-key-stdin/.test(e.message));
+  await assert.rejects(pi({}), (e) => e instanceof CliError && /no longer accepts file or admin-queue/.test(e.message) && /ROOM_PI_API_KEY/.test(e.message) && /--pi-key-stdin/.test(e.message));
   await assert.rejects(pi({ port: 'x' }), /--port/);
-  await assert.rejects(pi({ port: '1' }), /房间服务没有运行/);
+  await assert.rejects(pi({ port: '1' }), /Room service is not running/);
   const svc = createGuard({ allowed: [roomDir], logPath: path.join(roomDir, 'fake-service-log.jsonl'), who: 'fake-service' });
   svc.atomicWrite(path.join(roomDir, 'service.lock'), JSON.stringify({ pid: process.pid }));
-  await assert.rejects(pi({ port: '1' }, { ...c.io, env: {}, readStdin: () => '' }), /没有拿到 API key/);
+  await assert.rejects(pi({ port: '1' }, { ...c.io, env: {}, readStdin: () => '' }), /No API key provided/);
 
   // A stand-in service behind the real loopback HTTP surface (lib/http.mjs).
   const adminToken = fake.token();
@@ -539,7 +539,7 @@ test('pi-key: never written to disk; sent only over loopback to a service starte
     // a bad admin token is refused by the service and reported
     const svc2 = { ...service, adminToken: 'other-token' };
     const srv2 = await startHttp({ service: svc2, port: 0 });
-    try { await assert.rejects(pi({ port: String(srv2.port) }), /拒绝了 pi-key：BAD_TOKEN/); } finally { await srv2.close(); }
+    try { await assert.rejects(pi({ port: String(srv2.port) }), /rejected pi-key: BAD_TOKEN/); } finally { await srv2.close(); }
     assert.ok(!c.text().includes(KEY) && !fromStdin.text().includes(KEY), 'output never contains the key');
   } finally { await srv.close(); }
   // Negative control for the old design: no file under the room ever holds the key, and nothing was queued.
@@ -552,7 +552,7 @@ test('serve --pi-key-stdin: an empty stdin is refused before the service starts'
   const fake = makeRoom();
   const r = await spawnClean(process.execPath, [ROOM_MJS, 'serve', '--dir', fake.roomDir, '--once', '--pi-key-stdin'], { timeoutMs: 30000 });
   assert.equal(r.code, 9, r.stdout + r.stderr);
-  assert.match(r.stderr, /--pi-key-stdin: 标准输入里没有 key/);
+  assert.match(r.stderr, /--pi-key-stdin: no key on stdin/);
   assert.ok(!fs.existsSync(path.join(fake.roomDir, 'state.json')), 'the service did not start');
 });
 
@@ -563,8 +563,8 @@ test('summarizeRoom: items, verdicts, stale, disclosures, usage (unknown is not 
   const sha = 'b'.repeat(64);
   const events = [
     { type: 'seat_joined', seatId: 'A' },
-    { type: 'point_added', itemId: 'm2p1', seatId: 'A', attemptId: 'a1', aboutSeq: 2, text: '缺测试' },
-    { type: 'point_added', itemId: 'm2p2', seatId: 'A', attemptId: 'a1', aboutSeq: 2, text: '命名' },
+    { type: 'point_added', itemId: 'm2p1', seatId: 'A', attemptId: 'a1', aboutSeq: 2, text: 'missing tests' },
+    { type: 'point_added', itemId: 'm2p2', seatId: 'A', attemptId: 'a1', aboutSeq: 2, text: 'naming' },
     { type: 'item_marked', itemId: 'm2p1', by: 'A', status: 'accepted', text: '' },
     { type: 'summary_published', version: 2, seatId: 'A', attemptId: 'a3', unanswered: ['m2p2', 'm3'], supersedes: 1 },
     { type: 'artifacts_frozen', seatId: 'B', roundId: 1, manifestSha: sha, baseline: 'whole', fileCount: 3, bytes: 99, excluded: [], copyTorn: false },
@@ -586,19 +586,19 @@ test('summarizeRoom: items, verdicts, stale, disclosures, usage (unknown is not 
   assert.match(text, /seat A role=reviewer agent=codex-desktop .*status=joined audit=codex tainted/);
   assert.match(text, /seat B .*status=not_joined/);
   assert.match(text, /items total=3 accepted=1 unanswered=2 summary=v2/);
-  assert.match(text, /item m2p2 seat=A status=unanswered about=2 命名/);
+  assert.match(text, /item m2p2 seat=A status=unanswered about=2 naming/);
   assert.match(text, /artifacts seat=B manifest=bbbbbbbbbbbb files=3 bytes=99 baseline=whole stale/);
-  assert.match(text, /verdict seat=A attempt=a3 artifact=bbbbbbbbbbbb verdict=pass annotation=stale \(清单已过期\)/);
+  assert.match(text, /verdict seat=A attempt=a3 artifact=bbbbbbbbbbbb verdict=pass annotation=stale \(manifest stale\)/);
   assert.match(text, /disclosures total=2 pending=1/);
   assert.match(text, /disclose dsc-1 .*status=requested .*admin approve-disclose dsc-1/);
   assert.match(text, /disclose dsc-2 .*status=executed .*exit=0/);
-  assert.match(text, /usage: 已知用量 500 tokens.*另有 1 个回合用量未知（席位 B）.*剩余 500/);
+  assert.match(text, /usage: Known usage 500 tokens.*1 more turn\(s\) with Unknown usage \(seats: B\).*remaining 500/);
   assert.match(text, /needs_reconcile attempt=b9 seat=B/);
   assert.match(text, /reject_rate agent=codex-desktop preset=implement-review n=14 k=0 status=suspicious/);
   const few = summarizeRoom({ room, state: { phase: 'meet', order: ['A'], turnIndex: 0 }, events: [], adjudications: adj.slice(0, 3) }).join('\n');
   assert.match(few, /^phase=meet .*turn=1\/1/);
-  assert.match(few, /status=insufficient 样本不足（3\/14）/);
-  assert.match(few, /usage: 已知用量：无/);
+  assert.match(few, /status=insufficient Insufficient samples \(3\/14\)/);
+  assert.match(few, /usage: Known usage: none/);
 });
 
 // ---------------------------------------------------------------- JOIN.md
@@ -615,16 +615,16 @@ function joinFor(agent, over = {}) {
 
 // sha256 of renderJoin(JOIN_FIXTURE) per agent kind on win32. Update deliberately when the text changes.
 const JOIN_SNAPSHOTS = {
-  'claude-code': '68865bb6c778db074f0bb175efe885daf5f4018a372c564b5edce37db18b1129',
-  'codex-desktop': '9e713a1e093e9c1ce4b5382aae888f7978bc8314ef49842fa467cad46560496b',
-  'codex-cli': 'ece8d940c300767afd94b7eef9de3f466b0b18dcc544fd4ed8a7995c6d2a5aab',
-  antigravity: '4ae2a900cbdbbf8a23db5a3ce329ecaa4a1b50e24e4cf3e3ce2e2f8835a76cd7',
-  opencode: 'ea6a66a96ab3d84dc64dae145952039309ec6171ba253c36c6c4b872a9a1956b',
-  'gemini-cli': 'c80bc86389908f57d8965c06973bb3db4aa1364d47f9e351f0c0faccd5cce322',
-  kimi: '8015cd2e98d0997013dd8c027de77ae2919e93a3a2883f90a57e1e40ad45ad73',
-  dsh: 'ab6e154e4c040ea18cc1232ee113bbd24f46e7c15e4be2be14dc6379b79c4a08',
-  'pi-user': 'c204751fb979bdb33f99382508025e15dd7750eba5219b8b318296f0d7870144',
-  generic: '6fb7a51a11be1b1ddaf3b09d25f2a922b83221f7e451e4338454b0be10d72e72',
+  'claude-code': 'd14e77278ab7763827e3f167335b27fb20b9efabc3ee667b286a7f58b0106027',
+  'codex-desktop': '0b4e8788c931ead0f0a1fd867bd017b02a383927f6630aa34249c100ebc400ee',
+  'codex-cli': 'b47eae14f4962db08f7a01911859ca15e6ca27b07651ba49f66535cb3092d1d9',
+  antigravity: 'fbbdc4447a2e48869e6ca1685be1f3f357fa961c688b7b8a67b28174dfa15cfb',
+  opencode: '547a6143381cc4bbb3448d05d61ece14cece7581e1a33e9b6ebb9de03d8f67e9',
+  'gemini-cli': '6417a1d3891c1caab5be83ce99175222692f01f431b39668e75db8c9e3202a05',
+  kimi: 'fec0c468d6d02f89e2555adea8cb35db72cb95c403fa8e57c38b37abeb08d8d0',
+  dsh: 'b61adfd544c2114ad1126c5c9a3a21420062551dfb1148d077add554f00e23b0',
+  'pi-user': '757d313eb13f7083743ca19507a492349582ceff4a3b0cb9a0999fcbbc0c58b9',
+  generic: 'c986a151117b1dfadaf14249a8d5ea03a421b1be6f6864e31b5da53d9ae986c7',
 };
 
 test('JOIN.md variants: every agent kind states wait mode, cost, permissions, persistence, uploads, memory, farewell', () => {
@@ -636,18 +636,18 @@ test('JOIN.md variants: every agent kind states wait mode, cost, permissions, pe
   for (const agent of AGENT_KIND_NAMES) {
     const md = joinFor(agent);
     const wait = defaultWaitMode(agent);
-    assert.ok(md.includes(`JOIN 变体 ${agent}`), agent);
-    assert.ok(md.includes(`## 等待方式与成本`), agent);
-    assert.ok(md.includes(`(${wait})`) || md.includes(`（${wait}）`), `${agent} names wait mode ${wait}`);
-    assert.match(md, /成本：/, agent);
-    assert.ok(md.includes('## 权限提示'), agent);
+    assert.ok(md.includes(`JOIN variant ${agent}`), agent);
+    assert.ok(md.includes('## Wait mode and cost'), agent);
+    assert.ok(md.includes(`Wait mode: ${wait}`), `${agent} names wait mode ${wait}`);
+    assert.match(md, /Cost:/, agent);
+    assert.ok(md.includes('## Permissions'), agent);
     assert.ok(md.includes(fill(AGENT_KINDS[agent].persist, mjs, cwd)), `${agent} persistence line`);
     assert.match(md, /DSH/, `${agent} upload notice`);
-    assert.match(md, /不得写入你的持久记忆/, `${agent} memory rule`);
-    assert.match(md, /散会声明.*房间规则失效.*不要把房间内容写进持久记忆/s, `${agent} farewell`);
+    assert.match(md, /may be written into persistent memory/, `${agent} memory rule`);
+    assert.match(md, /farewell packet.*room rules end.*never write room content into persistent memory/s, `${agent} farewell`);
     // exact commands: absolute, forward slashes, unquoted
     assert.ok(md.includes(`node ${mjs} wait --seat ${sd}`), `${agent} wait command`);
-    assert.ok(md.includes(`node ${mjs} submit --seat ${sd} --attempt <TURN 给出的 attempt> --file <文件>`), `${agent} submit command`);
+    assert.ok(md.includes(`node ${mjs} submit --seat ${sd} --attempt <attempt from TURN> --file <file>`), `${agent} submit command`);
     assert.ok(md.includes(`node ${mjs} artifacts --seat ${sd} --attempt <id> --declare`), `${agent} executor artifacts command`);
     assert.ok(md.includes(`node ${mjs} leave --seat ${sd}`), agent);
     assert.ok(md.includes(`node ${mjs} status --seat ${sd} --whoami`), agent);
@@ -655,43 +655,43 @@ test('JOIN.md variants: every agent kind states wait mode, cost, permissions, pe
     assert.ok(md.split('\n').filter((l) => !l.includes('cmd.exe')).every((l) => !l.includes('\\')), `${agent}: no backslashes`);
     assert.ok(!md.includes(`"${mjs}"`), `${agent}: unquoted`);
     // speech files in the cwd root, never under .room-outbox
-    assert.ok(md.includes(`放在你的工作目录 ${cwd} 的根下，例如 ${cwd}/speech-<attempt>.md`), agent);
-    assert.match(md, /不要把发言文件放进 \.room-outbox\/（Codex 的 apply_patch 在那里会失败/, agent);
+    assert.ok(md.includes(`in the root of your working directory ${cwd}, e.g. ${cwd}/speech-<attempt>.md`), agent);
+    assert.match(md, /Do not place speech files inside \.room-outbox\/ \(Codex apply_patch fails there/, agent);
     if (WIN) assert.equal(sha256(md), JOIN_SNAPSHOTS[agent], `${agent} snapshot`);
   }
   const claude = joinFor('claude-code');
   assert.ok(claude.includes(`Bash(node ${mjs}:*)`));
   assert.ok(claude.includes('.claude/settings.local.json'));
   assert.match(claude, /run_in_background/);
-  assert.match(claude, /等待期间零模型调用/);
+  assert.match(claude, /zero model calls while waiting/);
   const codex = joinFor('codex-desktop', { role: 'reviewer', wake: { enabled: true, kind: 'codex-queue', thread: 'room-B', maxPerTurn: 1 } });
   assert.match(codex, /TURN_OVER/);
-  assert.match(codex, /每回合一次唤醒/);
-  assert.match(codex, /固定文案『\[ROOM authority=none\] 轮到席位 B/);
-  assert.match(codex, /只会收到上面那句固定的唤醒文案/);
+  assert.match(codex, /one wake continuation per turn/);
+  assert.match(codex, /fixed wake notice to your registered thread \("\[ROOM authority=none\] It is seat B's turn/);
+  assert.match(codex, /receive only the fixed wake notice above/);
   assert.match(codex, /verdict pass\|reject\|disclose/);
   // W3: the documented disclose form needs no shell quoting.
   assert.ok(codex.includes(`disclose --seat ${sd} --attempt <id> --arg git --arg diff --reason`), 'quote-free disclose form');
   assert.ok(!codex.includes(`'["git","diff"]'`), 'no JSON-on-the-command-line example');
   // CF-1: a TURN may carry a trailing voided-attempt note; JOIN.md says it does not change the result.
-  assert.match(codex, /TURN 后面可能多一行「注意：NOTICE/);
+  assert.match(codex, /TURN may be followed by a NOTICE line/);
   assert.ok(!codex.includes('artifacts --seat'), 'reviewer has no artifacts command');
   const codexNoWake = joinFor('codex-cli', { role: 'reviewer' });
-  assert.match(codexNoWake, /没有登记唤醒线程/);
+  assert.match(codexNoWake, /No wake thread is registered/);
   const manual = joinFor('gemini-cli');
   assert.ok(manual.includes(`node ${mjs} wait --seat ${sd} --timeout 110`));
-  assert.match(manual, /需用户唤醒（manual）/);
+  assert.match(manual, /Wait mode: manual \(Manual wake required\)/);
   const dsh = joinFor('dsh');
-  assert.match(dsh, /## 先看这一条：会话上传/);
-  assert.ok(dsh.indexOf('会话上传') < dsh.indexOf('## 权限提示'), 'DSH notice comes first');
-  assert.ok(!claude.includes('## 先看这一条'));
+  assert.match(dsh, /## Notice: session uploads/);
+  assert.ok(dsh.indexOf('session uploads') < dsh.indexOf('## Permissions'), 'DSH notice comes first');
+  assert.ok(!claude.includes('## Notice: session uploads'));
   const lead = joinFor('claude-code', { role: 'lead' });
   assert.match(lead, /mark --seat .* --status accepted\|rejected\|deferred/);
-  assert.match(lead, /assign --seat .* --file <草案文件>/);
+  assert.match(lead, /assign --seat .* --file <draftFile>/);
   const agy = joinFor('antigravity');
   assert.equal(defaultWaitMode('antigravity'), 'background');
-  assert.match(agy, /UTF-8 无 BOM/);
-  assert.match(agy, /500 毫秒/);
+  assert.match(agy, /UTF-8 \(no BOM\)/);
+  assert.match(agy, /500 ms/);
   assert.match(agy, /GEMINI\.md/);
   assert.doesNotMatch(agy, /agentapi/i);
 });
@@ -702,20 +702,20 @@ test('JOIN.md cmd.exe line quotes the native room.cmd path when it contains a sp
   const seatDir = WIN ? 'C:\\Users\\John Smith\\room-dev\\rooms\\p2\\seats\\A' : '/home/John Smith/room-dev/rooms/p2/seats/A';
   const md = renderJoin({ room: { id: 'p2' }, seat: { seatId: 'A', role: 'executor', agent: 'claude-code', waitMode: 'background', cwd: WIN ? 'D:\\work\\a' : '/work/a', wake: { enabled: false } }, seatDir, roomDir: path.dirname(path.dirname(seatDir)), roomMjs: JOIN_FIXTURE.roomMjs, agent: 'claude-code' });
   const line = md.split('\n').find((l) => l.includes('cmd.exe'));
-  assert.ok(line.includes(`（cmd.exe 下也可以用 "${path.join(seatDir, 'room.cmd')}" <命令>`), line);
-  assert.match(md, /路径含空格或特殊字符，所以加了引号/);
+  assert.ok(line.includes(`(On Windows cmd.exe you may also use "${path.join(seatDir, 'room.cmd')}" <subcommand>`), line);
+  assert.match(md, /paths above contain spaces or special characters and are quoted/);
   // Without whitespace the path stays bare (and native).
   const plain = joinFor('claude-code').split('\n').find((l) => l.includes('cmd.exe'));
-  assert.ok(plain.includes(`用 ${path.join(JOIN_FIXTURE.seatDir, 'room.cmd')} <命令>`), plain);
+  assert.ok(plain.includes(`use ${path.join(JOIN_FIXTURE.seatDir, 'room.cmd')} <subcommand>`), plain);
 });
 
 test('JOIN.md quotes a path only when it contains whitespace, and says so', () => {
-  const md = joinFor('claude-code', { cwd: WIN ? 'D:\\my work\\席位 A' : '/my work/席位 A' });
-  const cwd = WIN ? 'D:/my work/席位 A' : '/my work/席位 A';
+  const md = joinFor('claude-code', { cwd: WIN ? 'D:\\my work\\café A' : '/my work/café A' });
+  const cwd = WIN ? 'D:/my work/café A' : '/my work/café A';
   assert.ok(md.includes(`"${cwd}"`));
-  assert.match(md, /路径含空格或特殊字符，所以加了引号/);
+  assert.match(md, /paths above contain spaces or special characters and are quoted/);
   assert.equal(cmdPath(WIN ? 'C:\\a\\b' : '/a/b'), WIN ? 'C:/a/b' : '/a/b');
-  assert.ok(!joinFor('claude-code').includes('加了引号'));
+  assert.ok(!joinFor('claude-code').includes('are quoted'));
 });
 
 test('room.cmd wrapper: CRLF, quoted room.mjs path, code page switch only for non-ASCII paths', () => {
@@ -723,8 +723,8 @@ test('room.cmd wrapper: CRLF, quoted room.mjs path, code page switch only for no
   assert.ok(ascii.endsWith('exit /b %ERRORLEVEL%\r\n'));
   assert.ok(!ascii.includes('chcp'));
   assert.ok(!/[^\r]\n/.test(ascii), 'CRLF only');
-  const cn = renderRoomCmd({ roomMjs: WIN ? 'C:\\工具\\room.mjs' : '/工具/room.mjs' });
-  assert.match(cn, /chcp 65001 >nul\r\n/);
+  const nonAscii = renderRoomCmd({ roomMjs: WIN ? 'C:\\über-tools\\room.mjs' : '/über-tools/room.mjs' });
+  assert.match(nonAscii, /chcp 65001 >nul\r\n/);
 });
 
 // ---------------------------------------------------------------- seat commands (fake service)
@@ -803,7 +803,7 @@ test('wait: a voided attempt with a fresh one -> TURN on line 1, the void note a
   const lines = r.out.split('\n');
   const note = lines.findIndex((l) => /NOTICE attempt=b1 status=canceled by=admin/.test(l));
   assert.ok(note > 0, `the voided attempt is reported after TURN: ${r.out}`);
-  assert.match(lines[note], /^注意：/, 'the note carries no leading status word');
+  assert.match(lines[note], /^Note: /, 'the note carries no leading status word');
   assert.equal(readJson(path.join(fake.seat('B').outbox, 'last-attempt.json')).attemptId, 'b2', 'the new attempt is remembered');
   r = await seat(fake, 'wait', {});
   assert.match(r.first, /^TURN attempt=b2/);
@@ -821,7 +821,7 @@ test('wait: a voided attempt and no new turn -> NOTICE leads in place of TURN_OV
   fake.setState(baseState({ currentSeat: 'B', attempt: attemptFor('B', 'b1') }));
   r = await seat(fake, 'wait', { seatId: 'A' });
   assert.equal(r.code, EXIT.TURN_OVER);
-  assert.match(r.first, /^NOTICE attempt=a1 status=expired .*现在不是你的回合（phase=meet current=B）/);
+  assert.match(r.first, /^NOTICE attempt=a1 status=expired .*It is not your turn \(phase=meet current=B\)/);
   assert.equal(r.out.split('\n').length, 1, 'one line, no second status word');
   r = await seat(fake, 'wait', { seatId: 'A' });
   assert.match(r.first, /^TURN_OVER/, 'notice is printed once');
@@ -835,7 +835,7 @@ test('wait: a voided attempt and no new turn -> NOTICE leads in place of TURN_OV
   r = await seat(fake, 'wait', { timeout: '0.2' });
   assert.equal(r.code, EXIT.NOT_YOUR_TURN);
   assert.match(r.first, /^NOTICE attempt=b1 status=canceled by=admin .*phase=meet current=A waited=/);
-  assert.ok(r.first.endsWith('：结束本回合，用户会提醒你何时再运行 wait。'), r.first);
+  assert.ok(r.first.endsWith(': end your turn; the user will tell you when to run wait again.'), r.first);
   // ROOM_CLOSED keeps line 1 (and FAREWELL line 2); the note follows.
   fake.setEvents([{ type: 'packet_issued', seatId: 'B', attemptId: 'b3' }]);
   fake.setState(baseState({ currentSeat: 'B', attempt: attemptFor('B', 'b3') }));
@@ -845,14 +845,14 @@ test('wait: a voided attempt and no new turn -> NOTICE leads in place of TURN_OV
   r = await seat(fake, 'wait', {});
   assert.match(r.first, /^ROOM_CLOSED/);
   assert.match(r.out.split('\n')[1], /^FAREWELL /);
-  assert.match(r.out.split('\n')[2], /^注意：NOTICE attempt=b3 status=canceled/);
+  assert.match(r.out.split('\n')[2], /^Note: NOTICE attempt=b3 status=canceled/);
 });
 
 test('submit off-turn or late: written to the outbox for the room to reject and record; the room\'s reason is printed (CF-2)', async () => {
   const fake = makeRoom();
   const g = testGuard(fake.root);
   const speech = path.join(fake.root, 'cwd-B', 'speech-x.md');
-  g.writeFile(speech, '抢答');
+  g.writeFile(speech, 'off-turn speech');
   const outbox = fake.seat('B').outbox;
   const subs = () => (fs.existsSync(outbox) ? fs.readdirSync(outbox).filter((n) => /-s[0-9a-f]{6}\.json$/.test(n)) : []);
   fake.setEvents([]);
@@ -861,7 +861,7 @@ test('submit off-turn or late: written to the outbox for the room to reject and 
   let r = await seat(fake, 'submit', { attempt: 'a1', file: speech, 'reply-timeout': '0.2' });
   assert.equal(r.code, EXIT.PENDING);
   assert.match(r.first, /^PENDING attempt=a1 submission=a1-s[0-9a-f]{6}/);
-  assert.match(r.out, /提示：按房间当前状态，attempt=a1 不是你持有的回合（current=A\/a1）/);
+  assert.match(r.out, /Hint: according to current room state, attempt=a1 is not your active turn \(current=A\/a1\)/);
   assert.equal(subs().length, 1, 'the off-turn submission reached the outbox');
   // The service answers: the printed reason is the room's (NOT_YOUR_TURN, or STALE_ATTEMPT for a voided attempt).
   const reasons = { a1: 'NOT_YOUR_TURN', b0: 'STALE_ATTEMPT' };
@@ -882,7 +882,7 @@ test('submit: ACCEPTED, ACCEPTED MALFORMED, service REJECTED, PENDING; writes on
   const fake = makeRoom();
   const g = testGuard(fake.root);
   const speech = path.join(fake.root, 'cwd-B', 'speech-b1.md');
-  g.writeFile(speech, '我做完了。<<ROOM:PASS>>');
+  g.writeFile(speech, 'I am done. <<ROOM:PASS>>');
   fake.setEvents([]);
   fake.setState(baseState({ currentSeat: 'B', attempt: attemptFor('B', 'b1') }));
   let r;
@@ -904,7 +904,7 @@ test('submit: ACCEPTED, ACCEPTED MALFORMED, service REJECTED, PENDING; writes on
     r = await seat(fake, 'submit', { attempt: 'b1', file: speech });
     assert.equal(r.code, 0);
     assert.equal(r.first, 'ACCEPTED MALFORMED verdict_missing attempt=b1 seq=4');
-    assert.match(r.out, /下一个包里追问一次/);
+    assert.match(r.out, /will ask once in the next packet/);
     mode = 'reject';
     r = await seat(fake, 'submit', { attempt: 'b1', file: speech });
     assert.equal(r.code, EXIT.REJECTED);
@@ -941,7 +941,7 @@ test('structured commands: point, quote, misquoted, mark, verdict, disclose, pas
   g.writeFile(path.join(cwdB, 'src', 'debug.log'), 'noise');
   g.writeFile(path.join(cwdB, 'README.md'), '# demo\n');
   const draft = path.join(fake.root, 'cwd-A', 'draft.md');
-  g.writeFile(draft, '- B: 实现 | 验收: ["node","--test"]\n');
+  g.writeFile(draft, '- B: implement | acceptance: ["node","--test"]\n');
   fake.setEvents([]);
   fake.setState(baseState({ attempts: [attemptFor('A', 'a1'), attemptFor('B', 'b1')] }));
   const got = [];
@@ -952,7 +952,7 @@ test('structured commands: point, quote, misquoted, mark, verdict, disclose, pas
     got.push(meta);
     switch (meta.kind) {
       case 'point': return { status: 'ACCEPTED', itemId: `m${meta.payload.seq}p1` };
-      case 'quote': return { status: 'ACCEPTED', verified: meta.payload.text === '原文' };
+      case 'quote': return { status: 'ACCEPTED', verified: meta.payload.text === 'original text' };
       case 'disclose': return { status: 'REQUESTED', id: 'dsc-1' };
       case 'artifacts': return { status: 'FROZEN', manifestSha: meta.payload.manifest.sha256, fileCount: meta.payload.manifest.fileCount };
       case 'assign': return { status: 'DRAFTED', assignments: [{ seatId: 'B' }] };
@@ -963,31 +963,31 @@ test('structured commands: point, quote, misquoted, mark, verdict, disclose, pas
   const svcA = autoReply(fake, 'A', reply);
   const svcB = autoReply(fake, 'B', reply);
   try {
-    let r = await seat(fake, 'point', { seatId: 'A', attempt: 'a1', seq: '2', text: '缺测试' });
+    let r = await seat(fake, 'point', { seatId: 'A', attempt: 'a1', seq: '2', text: 'missing tests' });
     assert.equal(r.first, 'ACCEPTED item=m2p1');
-    r = await seat(fake, 'quote', { seatId: 'A', attempt: 'a1', seq: '2', text: '原文' });
+    r = await seat(fake, 'quote', { seatId: 'A', attempt: 'a1', seq: '2', text: 'original text' });
     assert.equal(r.first, 'ACCEPTED verified=true');
-    r = await seat(fake, 'quote', { seatId: 'A', attempt: 'a1', seq: '2', text: '编的' });
+    r = await seat(fake, 'quote', { seatId: 'A', attempt: 'a1', seq: '2', text: 'fabricated' });
     assert.equal(r.first, 'ACCEPTED verified=false');
-    r = await seat(fake, 'misquoted', { seatId: 'A', attempt: 'a1', seq: '3', text: '我没这么说' });
+    r = await seat(fake, 'misquoted', { seatId: 'A', attempt: 'a1', seq: '3', text: 'I did not say that' });
     assert.match(r.first, /^ACCEPTED kind=misquoted seq=3/);
-    r = await seat(fake, 'mark', { seatId: 'A', attempt: 'a1', item: 'm2p1', status: 'accepted', text: '已改' });
+    r = await seat(fake, 'mark', { seatId: 'A', attempt: 'a1', item: 'm2p1', status: 'accepted', text: 'fixed' });
     assert.match(r.first, /^ACCEPTED kind=mark item=m2p1 status=accepted/);
-    r = await seat(fake, 'disclose', { seatId: 'A', attempt: 'a1', argv: '["git","diff"]', reason: '看改动' });
+    r = await seat(fake, 'disclose', { seatId: 'A', attempt: 'a1', argv: '["git","diff"]', reason: 'inspect diff' });
     assert.equal(r.first, 'REQUESTED id=dsc-1');
     // W3: the quote-free documented form, a JSON file, and argv exactly as PowerShell 5.1 / cmd.exe deliver JSON.
     const rawArg = ['disclose', '--seat', fake.seatDir('A'), '--attempt', 'a1', '--arg', 'git', '--arg', 'diff', '--arg=--stat', '--reason', 'r'];
     r = await seat(fake, 'disclose', { ...parseArgs(rawArg.slice(1)), __argv: rawArg.slice(1), seatId: 'A' });
     assert.equal(r.first, 'REQUESTED id=dsc-1', r.out);
     const argvFile = path.join(fake.root, 'cwd-A', 'argv.json');
-    g.writeFile(argvFile, '﻿["git","status"]');
+    g.writeFile(argvFile, '\uFEFF["git","status"]');
     r = await seat(fake, 'disclose', { seatId: 'A', attempt: 'a1', 'argv-file': argvFile, reason: 'r' });
     assert.equal(r.first, 'REQUESTED id=dsc-1', r.out);
     r = await seat(fake, 'disclose', { seatId: 'A', attempt: 'a1', argv: '[git,diff]', reason: 'r' });
     assert.equal(r.first, 'REQUESTED id=dsc-1', r.out);
     r = await seat(fake, 'disclose', { seatId: 'A', attempt: 'a1', argv: "'[git,diff]'", reason: 'r' });
     assert.equal(r.first, 'REQUESTED id=dsc-1', r.out);
-    r = await seat(fake, 'verdict', { seatId: 'A', attempt: 'a1', _: ['pass'], artifact: 'c'.repeat(64), text: '好' });
+    r = await seat(fake, 'verdict', { seatId: 'A', attempt: 'a1', _: ['pass'], artifact: 'c'.repeat(64), text: 'good' });
     assert.match(r.first, /^ACCEPTED kind=verdict verdict=pass/);
     r = await seat(fake, 'verdict', { seatId: 'A', attempt: 'a1', _: ['disclose'], artifact: 'c'.repeat(64) });
     assert.match(r.first, /^ACCEPTED MALFORMED disclose_missing kind=verdict verdict=disclose/);
@@ -1036,11 +1036,11 @@ test('structured commands: point, quote, misquoted, mark, verdict, disclose, pas
   assert.equal(preTurn.length, 1);
   assert.deepEqual(preTurn[0].payload.paths, ['README.md']);
   assert.ok(verifySubmissionProof(preTurn[0], fs.readFileSync(path.join(fake.seatDir('B'), 'token'), 'utf8').trim()), "proof binds attemptId 'none'");
-  assert.deepEqual(byKind.point.payload, { seq: 2, text: '缺测试' });
-  assert.deepEqual(byKind.mark.payload, { item: 'm2p1', status: 'accepted', text: '已改' });
-  assert.deepEqual(byKind.disclose.payload, { argv: ['git', 'diff'], reason: '看改动' });
+  assert.deepEqual(byKind.point.payload, { seq: 2, text: 'missing tests' });
+  assert.deepEqual(byKind.mark.payload, { item: 'm2p1', status: 'accepted', text: 'fixed' });
+  assert.deepEqual(byKind.disclose.payload, { argv: ['git', 'diff'], reason: 'inspect diff' });
   assert.deepEqual(byKind.pass.payload, {});
-  assert.match(byKind.assign.payload.draft, /验收/);
+  assert.match(byKind.assign.payload.draft, /acceptance/);
   const art = byKind.artifacts.payload;
   assert.deepEqual(art.paths, ['src', 'README.md']);
   assert.deepEqual(art.exclude, ['*.log']);
@@ -1079,16 +1079,16 @@ test('status: STATUS line, --whoami shows the registered audit source, --log sho
   assert.match(r.first, /^NO_SERVICE/);
   assert.match(r.out, /WHOAMI seat=A role=reviewer agent=codex-desktop audit=codex thread=01a0f000-0000-7000-8000-000000000123 session=-/);
   fake.setEvents([{ type: 'needs_reconcile', attemptId: 'a0', seatId: 'A' }]);
-  fake.setState(baseState({ currentSeat: 'A', attempt: attemptFor('A', 'a1'), task: { text: '任务 文本' }, messages: [{ seq: 2, seatId: 'B', text: '第一条\n发言' }] }));
+  fake.setState(baseState({ currentSeat: 'A', attempt: attemptFor('A', 'a1'), task: { text: 'task text' }, messages: [{ seq: 2, seatId: 'B', text: 'first\nspeech' }] }));
   r = await seat(fake, 'status', { seatId: 'A', whoami: true, log: true });
   assert.equal(r.code, 0);
   assert.match(r.first, /^STATUS phase=meet round=1 epoch=0 current=A attempt=a1 me=A my_attempt=a1 my_status=not_joined wait_mode=turn_over order=A,B turn=1\/2 needs_reconcile=a0/);
   assert.match(r.out, /WHOAMI seat=A .*audit=codex thread=01a0f000-0000-7000-8000-000000000123/);
-  assert.match(r.out, /\[user seq=1\] 任务 文本/);
-  assert.match(r.out, /\[B seq=2 authority=none\] 第一条 发言/);
+  assert.match(r.out, /\[user seq=1\] task text/);
+  assert.match(r.out, /\[B seq=2 authority=none\] first speech/);
   r = await seat(fake, 'status', { seatId: 'B', whoami: true });
   assert.match(r.out, /WHOAMI seat=B .*audit=none/);
-  assert.match(r.out, /没有登记审计源/);
+  assert.match(r.out, /No audit source registered/);
   assert.equal(whoamiLine({ seatId: 'Z' }, { kind: 'claude', sessionId: 's1', cwd: '/x' }).includes('session=s1'), true);
 });
 
@@ -1127,7 +1127,7 @@ test('CLI: exit codes, admin dispatch, and the seat process clears its inherited
   r = await spawnClean(process.execPath, [ROOM_MJS, 'submit', '--seat', fake.seatDir('B'), '--attempt', 'a1', '--file', probe, '--reply-timeout', '0.3'], { timeoutMs: 30000 });
   assert.equal(r.code, 8, r.stdout + r.stderr);
   assert.match(r.stdout, /^PENDING attempt=a1 /);
-  assert.match(r.stdout, /不是你持有的回合/);
+  assert.match(r.stdout, /is not your active turn/);
   r = await spawnClean(process.execPath, [ROOM_MJS, 'verdict', 'maybe', '--seat', fake.seatDir('B'), '--attempt', 'a1'], { timeoutMs: 30000 });
   assert.equal(r.code, 9);
   assert.match(r.stderr, /^ERROR verdict needs one of pass\|reject\|disclose/);
@@ -1202,8 +1202,8 @@ test('add-seat --surface refusals: malformed, with --hosted, a tool seat with a 
     return () => ADMIN_COMMANDS['add-seat']({ dir: fake.roomDir, seat: `S${n}`, role: 'participant', agent: 'pi-user', wait: 'manual', cwd, _: ['add-seat'], ...over }, fake.io.io);
   };
   for (const surface of ['tool', 'tool:1x', 'gui', true]) assert.throws(add({ surface }), (e) => e instanceof CliError && /^--surface cli\|tool:/.test(e.message), String(surface));
-  assert.throws(add({ surface: 'tool:T', hosted: 'pi:discussion', agent: undefined }), (e) => e instanceof CliError && /--surface 只用于不是托管的席位/.test(e.message));
-  assert.throws(add({ surface: 'tool:T', 'wake-thread': 't1' }), (e) => e instanceof CliError && /工具席位不能登记 Codex queue 唤醒/.test(e.message));
+  assert.throws(add({ surface: 'tool:T', hosted: 'pi:discussion', agent: undefined }), (e) => e instanceof CliError && /--surface is only for non-hosted seats/.test(e.message));
+  assert.throws(add({ surface: 'tool:T', 'wake-thread': 't1' }), (e) => e instanceof CliError && /Tool-surface seats cannot register codex-queue wake/.test(e.message));
   const seats = () => readJson(path.join(fake.roomDir, 'room.json')).seats.map((s) => s.seatId);
   assert.deepEqual(seats(), ['A', 'B'], 'no refused seat was created');
   for (let i = 1; i <= n; i++) assert.ok(!fs.existsSync(fake.seatDir(`S${i}`)), `S${i} has no seat folder`);
@@ -1219,7 +1219,7 @@ test('wait and submit for a tool seat name Room tool actions; a CLI seat keeps i
   let r = await seat(fake, 'wait', { seatId: 'A' });
   assert.match(r.first, /^TURN attempt=a1 /);
   assert.ok(r.out.includes(SURFACE_LINES.tool.turnRead), r.out);
-  assert.ok(r.out.split('\n').includes('交卷：调用房间工具 submit（attempt=a1，text 是发言全文），不用写文件。'), r.out);
+  assert.ok(r.out.split('\n').includes('Submit: call room tool submit (attempt=a1, text is the full speech) without writing a file.'), r.out);
   assert.ok(!r.out.includes('--seat'), r.out);
   // A voided attempt and no new turn after the timeout: the tool seat is told to call wait again.
   fake.setEvents([{ type: 'packet_issued', seatId: 'A', attemptId: 'a1' }, { type: 'attempt_canceled', seatId: 'A', attemptId: 'a1', by: 'admin' }]);
@@ -1227,31 +1227,31 @@ test('wait and submit for a tool seat name Room tool actions; a CLI seat keeps i
   r = await seat(fake, 'wait', { seatId: 'A', timeout: '0.2' });
   assert.equal(r.code, EXIT.NOT_YOUR_TURN);
   assert.match(r.first, /^NOTICE attempt=a1 status=canceled by=admin /);
-  assert.ok(r.first.endsWith(`：结束本回合，用户会提醒你何时再${SURFACE_LINES.tool.waitAgain}。`), r.first);
-  assert.ok(!r.first.includes('运行 wait'), r.first);
+  assert.ok(r.first.endsWith(`: end your turn; the user will tell you when to ${SURFACE_LINES.tool.waitAgain} again.`), r.first);
+  assert.ok(!r.first.includes('run wait'), r.first);
   fake.setEvents([]);
   fake.setState(baseState({ currentSeat: 'B', attempt: attemptFor('B', 'b1') }));
   r = await seat(fake, 'wait', {});
   assert.match(r.first, /^TURN attempt=b1 /);
-  assert.ok(r.out.includes('先用读文件工具读完包文件再工作。'));
+  assert.ok(r.out.includes('Read the full packet file with your file-reading tool before working.'));
   const cmd = seatRoomCmd({ seat: fake.seat('B'), seatDir: fake.seatDir('B'), fallback: '' });
-  assert.equal(r.out.split('\n').find((l) => l.startsWith('交卷：')), `交卷：${cmd} submit --seat ${fwd(fake.seatDir('B'))} --attempt b1 --file <工作目录根下的发言文件>`);
+  assert.equal(r.out.split('\n').find((l) => l.startsWith('Submit:')), `Submit: ${cmd} submit --seat ${fwd(fake.seatDir('B'))} --attempt b1 --file <speech-file-in-cwd-root>`);
 
   const g = testGuard(fake.root);
   const malformed = () => ({ status: 'ACCEPTED', kind: 'speech', seq: 4, malformed: 'verdict_missing', reasons: [{ code: 'verdict_missing' }], followUp: true });
   const svcA = autoReply(fake, 'A', malformed);
   const svcB = autoReply(fake, 'B', malformed);
   try {
-    g.writeFile(path.join(fake.root, 'cwd-A', 'speech-a1.md'), '结论');
+    g.writeFile(path.join(fake.root, 'cwd-A', 'speech-a1.md'), 'conclusion');
     fake.setState(baseState({ currentSeat: 'A', attempt: attemptFor('A', 'a1') }));
     r = await seat(fake, 'submit', { seatId: 'A', attempt: 'a1', file: path.join(fake.root, 'cwd-A', 'speech-a1.md') });
     assert.equal(r.first, 'ACCEPTED MALFORMED verdict_missing attempt=a1 seq=4');
     assert.ok(r.out.includes(SURFACE_LINES.tool.malformedAccepted), r.out);
-    g.writeFile(path.join(fake.root, 'cwd-B', 'speech-b1.md'), '汇报');
+    g.writeFile(path.join(fake.root, 'cwd-B', 'speech-b1.md'), 'report');
     fake.setState(baseState({ currentSeat: 'B', attempt: attemptFor('B', 'b1') }));
     r = await seat(fake, 'submit', { attempt: 'b1', file: path.join(fake.root, 'cwd-B', 'speech-b1.md') });
     assert.equal(r.first, 'ACCEPTED MALFORMED verdict_missing attempt=b1 seq=4');
-    assert.ok(r.out.split('\n').includes('房间接受了这次提交但标为 malformed，会在下一个包里追问一次；只用原样 ASCII 标记或 room 子命令更正。'), r.out);
+    assert.ok(r.out.split('\n').includes('The room accepted this submission as malformed and will ask once in the next packet; correct it with exact ASCII markers or room subcommands.'), r.out);
   } finally { svcA.stop(); svcB.stop(); }
 });
 
@@ -1269,8 +1269,8 @@ test('admin add-seat generates POSIX room.sh alongside room.cmd and locks token 
   const { renderRoomSh } = await import('../lib/join.mjs');
   const shDefault = renderRoomSh({ roomMjs: '/opt/room dev/room.mjs' });
   assert.match(shDefault, /^#!\/bin\/sh\nexec node '.*room\.mjs' "\$@"\n$/);
-  const shApp = renderRoomSh({ roomMjs: "/opt/it's/room.mjs", runtime: { kind: 'app', exe: '/opt/app/yuanzhuo' } });
-  assert.match(shApp, /^#!\/bin\/sh\nELECTRON_RUN_AS_NODE=1 exec '.*yuanzhuo' '.*it'\\''s.*room\.mjs' "\$@"\n$/);
+  const shApp = renderRoomSh({ roomMjs: "/opt/it's/room.mjs", runtime: { kind: 'app', exe: '/opt/app/AgentRoundtable' } });
+  assert.match(shApp, /^#!\/bin\/sh\nELECTRON_RUN_AS_NODE=1 exec '.*AgentRoundtable' '.*it'\\''s.*room\.mjs' "\$@"\n$/);
 
   const fake = makeRoom({ seats: [{ seat: 'A', role: 'participant', agent: 'generic', wait: 'background' }] });
   const shPath = path.join(fake.seatDir('A'), 'room.sh');

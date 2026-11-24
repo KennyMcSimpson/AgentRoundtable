@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { scenario, invariants } from '../cases/16a-stale-during-review.test.mjs';
 
-test('#16a 变异 no-recompute：审查中改过的产物不再被发现，stale verdict 进入汇总，用例变红', async () => {
+test('#16a mutation no-recompute: artifact edited during review goes undetected, stale verdict enters summary, and the case fails', async () => {
   const r = await scenario({ mutate: 'no-recompute' });
   try {
     assert.deepEqual(r.sim.state().mutate, ['no-recompute']);

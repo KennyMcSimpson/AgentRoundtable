@@ -130,7 +130,7 @@ function spyFs() {
 }
 const readLines = (f) => fs.readFileSync(f, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
 const norm = (p) => path.resolve(p).toLowerCase();
-const FORBIDDEN_WORDING = ['只读', '无写操作'];
+const FORBIDDEN_WORDING = ['read-only', 'read only', 'no writes occurred', 'guaranteed clean'];
 
 // ---------- tokenizer / chain splitter ----------
 
@@ -735,7 +735,7 @@ test('auditAttempt (codex) attempt 1: unknown commands outside allowlist mark ta
     `Get-Content -LiteralPath '${pk(P1)}'`, 'Get-ChildItem -Recurse src', 'git status && git diff --stat', 'rg -n "unlink|TODO" src',
   ].sort());
   assert.ok(r.others['custom_tool_call/exec/room'] >= 1 && r.others['CommandExecution/room'] >= 1, 'room commands are excluded, not reads');
-  assert.match(r.note, /未观测到写操作/);
+  assert.match(r.note, /No writes observed/);
   assert.match(r.note, /tainted/);
   assert.deepEqual(r.window, W1);
 
@@ -768,7 +768,7 @@ test('auditAttempt (codex) attempt 2: writes across parent, child and grandchild
   assert.equal(child.skippedInherited, 5);
   const parent = r.files.find((f) => f.file === F_PARENT);
   assert.equal(parent.skippedOutsideWindow, 13);
-  assert.match(r.note, /观测到 5 处写操作/);
+  assert.match(r.note, /Observed 5 write operation\(s\)/);
   assert.match(r.note, /tainted/);
 });
 
@@ -964,19 +964,19 @@ test('an agent that keeps appending to its rollout sees zero write errors while 
 
 // ---------- wording, windows, CLI ----------
 
-test('describeObservation never says 只读 or 无写操作, in any branch', () => {
+test('describeObservation never claims read-only or guaranteed no writes, in any branch', () => {
   const base = { files: [{}, {}], writes: [], unknownCommands: [{}], reads: [{}, {}], annotation: 'none' };
   const texts = [
     describeObservation(base),
     describeObservation({ ...base, writes: [{ path: 'a.md' }, { path: 'a.md' }, {}], annotation: 'tainted' }),
     describeObservation({ ...base, annotation: 'audit_failed' }),
   ];
-  for (const t of texts) for (const w of FORBIDDEN_WORDING) assert.ok(!t.includes(w), `${w} in ${t}`);
-  assert.match(texts[0], /未观测到写操作/);
-  assert.match(texts[0], /未观测到不等于没有发生/);
-  assert.match(texts[0], /记 unknown，不记 clean/);
+  for (const t of texts) for (const w of FORBIDDEN_WORDING) assert.ok(!t.toLowerCase().includes(w), `${w} in ${t}`);
+  assert.match(texts[0], /No writes observed/);
+  assert.match(texts[0], /Not observed does not mean none occurred/);
+  assert.match(texts[0], /recorded as unknown, not clean/);
   assert.match(texts[0], /tainted/);
-  assert.match(texts[1], /观测到 3 处写操作（a\.md）/);
+  assert.match(texts[1], /Observed 3 write operation\(s\) within the turn window \(a\.md\)/);
   assert.match(texts[2], /audit_failed/);
 });
 
@@ -984,7 +984,7 @@ test('every note produced from the fixtures avoids the forbidden wording', async
   const notes = [];
   for (const w of [W1, W2, undefined]) notes.push((await auditAttempt({ kind: 'codex', files: CODEX_FILES, turnWindow: w })).note);
   notes.push((await auditAttempt({ kind: 'codex', files: [path.join(CLAUDE_FIX, `${S1}.jsonl`)] })).note);
-  for (const n of notes) for (const w of FORBIDDEN_WORDING) assert.ok(!n.includes(w), `${w} in ${n}`);
+  for (const n of notes) for (const w of FORBIDDEN_WORDING) assert.ok(!n.toLowerCase().includes(w), `${w} in ${n}`);
 });
 
 test('turnWindowFor: packet_issued to the first terminal event of the same attempt, else now', () => {
@@ -1041,7 +1041,7 @@ test('cmdAudit prints delivery and observation per packet for a registered seat 
     assert.match(outText, /^OBSERVED attempt=a1-1-aa11bb status=present_in_native writes=0 unknown=2 reads=4 tainted=true annotation=tainted$/m);
     assert.match(outText, /^OBSERVED attempt=a1-2-cc22dd status=header_only writes=5 unknown=0 reads=2 tainted=true annotation=tainted$/m);
     assert.match(outText, /inherited_skipped=5/);
-    for (const w of FORBIDDEN_WORDING) assert.ok(!outText.includes(w));
+    for (const w of FORBIDDEN_WORDING) assert.ok(!outText.toLowerCase().includes(w));
 
     const bare = path.join(roomDir, 'seats', 'C');
     guard.mkdir(bare);

@@ -1,2 +1,2 @@
-本回合任务（汇总）：1) 对待回应条目表逐项 mark（accepted|rejected|deferred，附说明），漏标的会被标为未回应；2) 对每份冻结产物逐一 verdict；3) 把汇总正文（决议、保留分歧、下一轮草案）写成文件并 submit。
-汇总带版本号；新版交付后各席位会在下一个包里收到取代通知。
+Turn task (summary): 1) mark every entry in the pending item table (accepted|rejected|deferred with a reason), as unmarked items are flagged unanswered; 2) record a verdict for every frozen artifact; 3) write the summary body (decisions, open disagreements, next-round draft) to a file and submit it.
+Summaries are versioned; publishing a newer version sends a superseded notice to every seat in its next packet.

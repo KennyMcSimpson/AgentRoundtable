@@ -69,7 +69,7 @@ test('lobby: gate, create, refusals without leftovers, list, open, task + start,
   assert.match(page.text, /lobby\.js/);
   assert.match(page.headers['content-security-policy'], /default-src 'self'/);
   assert.equal(page.headers['x-frame-options'], 'DENY');
-  for (const f of ['/lobby.js', '/lobby.css']) assert.equal((await req(port, { pathname: f })).status, 200, f);
+  for (const f of ['/lobby.js', '/lobby.css', '/rt-i18n.js']) assert.equal((await req(port, { pathname: f })).status, 200, f);
   assert.equal((await req(port, { pathname: '/app.js' })).status, 404, 'only the lobby files are served');
   assert.equal((await req(port, { pathname: '/../lib/lobby.mjs' })).status, 404);
 
@@ -91,8 +91,6 @@ test('lobby: gate, create, refusals without leftovers, list, open, task + start,
   assert.equal((await req(port, { method: 'POST', pathname: '/lobby/api/create', body: { token: 'f'.repeat(48), ...createBody } })).status, 401, 'wrong token');
   assert.equal((await req(port, { method: 'POST', pathname: `/lobby/api/create?token=${token}`, body: createBody })).status, 400, 'token in a query string refused');
   assert.equal((await req(port, { method: 'POST', pathname: '/lobby/api/create', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ token, ...createBody }) })).status, 415);
-  // Over the cap the server answers 413 and drops the connection (lib/http.mjs readBody), so the
-  // client sees either the 413 or the reset, depending on timing.
   const big = await req(port, { method: 'POST', pathname: '/lobby/api/create', body: { token, pad: 'x'.repeat(70 * 1024) } }).then((r) => r.status, (e) => e.code);
   assert.ok([413, 'ECONNRESET', 'EPIPE'].includes(big), `body cap: ${big}`);
   for (const name of ['open', 'stop', 'task', 'start']) assert.equal((await req(port, { method: 'POST', pathname: `/lobby/api/${name}`, body: { id: 'r1' } })).status, 401, `${name} without token`);
@@ -117,7 +115,7 @@ test('lobby: gate, create, refusals without leftovers, list, open, task + start,
   for (const s of made.json.seats) {
     assert.ok(fs.existsSync(s.joinPath), `JOIN.md of ${s.seatId}`);
     assert.equal(s.joinPath, path.join(roomDir, 'seats', s.seatId, 'JOIN.md'));
-    assert.equal(s.sentence, `读 ${s.joinPath}，按它入席。`);
+    assert.equal(s.sentence, `Read ${s.joinPath} and join the room following it.`);
   }
   const [sa, sb] = made.json.seats;
   assert.equal(sa.wakeThread, 'room-r1-A', 'codex seat gets the default thread name, unique per room');
@@ -139,13 +137,13 @@ test('lobby: gate, create, refusals without leftovers, list, open, task + start,
   const dup = await req(port, { method: 'POST', pathname: '/lobby/api/create', body: { token, ...createBody, seats: [{ seatId: 'A', role: 'lead', agent: 'generic', cwd: cwdA }] } });
   assert.equal(dup.status, 409);
   assert.equal(dup.json.error, 'ROOM_EXISTS');
-  assert.match(dup.json.message, /已经存在/);
+  assert.match(dup.json.message, /already exists/i);
   assert.ok(fs.existsSync(path.join(roomDir, F.room)), 'the existing room is untouched');
   const missing = path.join(b, 'seats', 'missing');
   const miss = await req(port, { method: 'POST', pathname: '/lobby/api/create', body: { token, id: 'r2', preset: 'discussion', seats: [{ seatId: 'A', role: 'lead', agent: 'generic', cwd: missing, createCwd: false }] } });
   assert.equal(miss.status, 400);
   assert.equal(miss.json.error, 'CWD_MISSING');
-  assert.match(miss.json.message, /不存在/);
+  assert.match(miss.json.message, /does not exist/i);
   assert.ok(!fs.existsSync(path.join(roomsRoot, 'r2')) && !fs.existsSync(missing), 'nothing left after a missing folder');
   // A refusal that only add-seat can see (two leads): the room and the folder it made are removed.
   const fresh = path.join(b, 'seats', 'fresh', 'X');
@@ -155,7 +153,7 @@ test('lobby: gate, create, refusals without leftovers, list, open, task + start,
   ] } });
   assert.equal(two.status, 400, two.text);
   assert.equal(two.json.error, 'SEAT_REFUSED');
-  assert.match(two.json.message, /席位 Y 没建成/);
+  assert.match(two.json.message, /Seat Y/i);
   assert.ok(!fs.existsSync(path.join(roomsRoot, 'r3')), 'half-created room removed');
   assert.ok(!fs.existsSync(path.join(b, 'seats', 'fresh')), 'folders the request created removed');
   const exists = await req(port, { method: 'POST', pathname: '/lobby/api/create', body: { token, id: 'r4', seats: [{ seatId: 'A', role: 'lead', agent: 'generic', cwd: cwdA, createCwd: true }] } });
@@ -195,12 +193,10 @@ test('lobby: gate, create, refusals without leftovers, list, open, task + start,
         const r = await req(port, { method: 'POST', pathname: '/lobby/api/create', body: { token, id: 'r6', preset: 'discussion', seats: [{ seatId: 'A', role: 'lead', agent: 'generic', cwd: bad, createCwd }] } });
         assert.equal(r.status, 400, `${what}: ${r.text}`);
         assert.equal(r.json.error, 'CWD_BAD_NAME', what);
-        assert.match(r.json.message, /工作文件夹不能用/);
+        assert.ok(r.json.message && !/[\u4e00-\u9fff]/.test(r.json.message), 'English error message');
       }
     }
     assert.ok(!fs.existsSync(path.join(b, 'seats', 'p1')), 'no parent folder left behind by a bad name');
-    // A recursive mkdir that makes the parents and then fails on the leaf (a name longer than a
-    // Windows name may be): a refusal, and the parents it made are removed again.
     const tooLong = path.join(b, 'seats', 'q1', 'q2', 'x'.repeat(300));
     const fail = await req(port, { method: 'POST', pathname: '/lobby/api/create', body: { token, id: 'r6', preset: 'discussion', seats: [{ seatId: 'A', role: 'lead', agent: 'generic', cwd: tooLong, createCwd: true }] } });
     assert.equal(fail.status, 400, fail.text);
@@ -210,7 +206,7 @@ test('lobby: gate, create, refusals without leftovers, list, open, task + start,
   }
   assert.deepEqual(fs.readdirSync(roomsRoot), ['r1'], 'still only the created room');
 
-  // F3: the page asks whether a typed folder exists (read-only, token-authenticated POST), to untick 替我新建.
+  // F3: the page asks whether a typed folder exists (read-only, token-authenticated POST), to uncheck createCwd.
   assert.equal((await req(port, { pathname: `/lobby/api/folder?path=${encodeURIComponent(cwdA)}` })).status, 405);
   assert.equal((await req(port, { method: 'POST', pathname: '/lobby/api/folder', body: { path: cwdA } })).status, 401);
   assert.equal((await req(port, { method: 'POST', pathname: '/lobby/api/folder', body: { token: 'wrong', path: cwdA } })).status, 401);
@@ -235,13 +231,13 @@ test('lobby: gate, create, refusals without leftovers, list, open, task + start,
   assert.deepEqual(r1.seats.map((s) => [s.seatId, s.role, s.agent, s.waitMode, s.wakeThread]), [['A', 'lead', 'codex-desktop', 'turn_over', 'room-r1-A'], ['B', 'executor', 'claude-code', 'background', null]]);
   assert.ok(!list.text.includes(token), 'the list never carries the lobby token');
 
-  // Another service in this process already holds the lock: open is refused in Chinese.
+  // Another service in this process already holds the lock: open is refused.
   const lockPath = path.join(roomDir, F.lock);
   fs.writeFileSync(lockPath, JSON.stringify({ pid: process.pid, image: 'node', startedAt: new Date().toISOString(), heartbeatAt: new Date().toISOString() }));
   const held = await req(port, { method: 'POST', pathname: '/lobby/api/open', body: { token, id: 'r1' } });
   assert.equal(held.status, 409);
   assert.equal(held.json.error, 'SERVICE_RUNNING');
-  assert.match(held.json.message, /已经/);
+  assert.match(held.json.message, /already running/i);
   fs.rmSync(lockPath);
 
   // task before open: refused, nothing queued.
@@ -274,7 +270,7 @@ test('lobby: gate, create, refusals without leftovers, list, open, task + start,
   const st = await req(roomPort, { pathname: '/api/state' });
   assert.equal(st.status, 200);
   assert.equal(st.json.room.id, 'r1');
-  const adm = await req(roomPort, { method: 'POST', pathname: '/api/admin', body: { token: m[2], cmd: 'say', text: '你好' } });
+  const adm = await req(roomPort, { method: 'POST', pathname: '/api/admin', body: { token: m[2], cmd: 'say', text: 'hello' } });
   assert.equal(adm.status, 200, adm.text);
   assert.notEqual(adm.json.ok, false, 'the room accepts its admin token from the fragment');
   assert.ok(fs.existsSync(lockPath), 'service.lock while open');
@@ -287,7 +283,7 @@ test('lobby: gate, create, refusals without leftovers, list, open, task + start,
   assert.equal(list2.url, `http://127.0.0.1:${roomPort}/`, 'GET list carries the room url without its admin token');
 
   // Task + start move the room to work (implement-review with an executor).
-  const tk = await req(port, { method: 'POST', pathname: '/lobby/api/task', body: { token, id: 'r1', text: '写 hello.mjs' } });
+  const tk = await req(port, { method: 'POST', pathname: '/lobby/api/task', body: { token, id: 'r1', text: 'Write hello.mjs' } });
   assert.equal(tk.status, 200, tk.text);
   assert.equal((await req(port, { method: 'POST', pathname: '/lobby/api/start', body: { token, id: 'r1', order: ['Z'] } })).json.error, 'BAD_ORDER');
   const sr = await req(port, { method: 'POST', pathname: '/lobby/api/start', body: { token, id: 'r1', order: ['A', 'B'] } });
@@ -295,13 +291,13 @@ test('lobby: gate, create, refusals without leftovers, list, open, task + start,
   assert.equal(sr.json.ok, true);
   const phase = await until(async () => { const s = await req(roomPort, { pathname: '/api/state' }); return ['work', 'meet'].includes(s.json.state.phase) ? s.json.state.phase : null; });
   assert.ok(phase, 'room moved to work/meet');
-  assert.equal((await req(roomPort, { pathname: '/api/state' })).json.state.task.text, '写 hello.mjs');
+  assert.equal((await req(roomPort, { pathname: '/api/state' })).json.state.task.text, 'Write hello.mjs');
   const list3 = (await req(port, { pathname: '/lobby/api/rooms' })).json.rooms[0];
   assert.ok(['work', 'meet'].includes(list3.phase));
   assert.equal(list3.roundId, 1);
   const again2 = await req(port, { method: 'POST', pathname: '/lobby/api/start', body: { token, id: 'r1' } });
   assert.equal(again2.status, 409, 'a second start while the round runs is refused');
-  assert.match(again2.json.message, /开始被房间拒绝/);
+  assert.match(again2.json.message, /refused|rejected|in progress/i);
 
   // Stop: service.lock gone, the room UI no longer answers.
   const stopped = await req(port, { method: 'POST', pathname: '/lobby/api/stop', body: { token, id: 'r1' } });
@@ -335,7 +331,7 @@ test('lobby: rooms are keyed by directory name; built-in Pi seats; add-seat refu
     for (const c of ['AppData.', 'AppData ']) {
       const r = await addSeat({ dir: path.join(roomsRoot, 'foo'), seat: 'B', role: 'participant', cwd: `${b}\\${c}\\x` });
       assert.notEqual(r.code, 0, `add-seat refuses ${JSON.stringify(c)}`);
-      assert.match(r.error || r.lines.join(' '), /句点或空格结尾/);
+      assert.match(r.error || r.lines.join(' '), /dot|space|trailing/i);
     }
   }
   const lobby = await startLobby({ port: 0, roomsRoot });
@@ -355,7 +351,7 @@ test('lobby: rooms are keyed by directory name; built-in Pi seats; add-seat refu
   // F4: meta offers the built-in Pi tiers; create accepts hosted: 'pi:<tier>' without an agent.
   const meta = (await req(port, { pathname: '/lobby/api/meta' })).json;
   assert.deepEqual(meta.hostedTiers.map((t) => t.id), ['discussion', 'exec', 'reviewer']);
-  assert.match(meta.presets.find((p) => p.id === 'simplified').desc, /房间内置 Pi/);
+  assert.match(meta.presets.find((p) => p.id === 'simplified').desc, /Built-in Pi|Pi/i);
   const piDir = path.join(b, 'seats', 'P');
   const made = await req(port, { method: 'POST', pathname: '/lobby/api/create', body: { token, id: 'simple', preset: 'simplified', seats: [
     { seatId: 'A', role: 'lead', agent: 'claude-code', cwd: seatDir },
@@ -364,7 +360,7 @@ test('lobby: rooms are keyed by directory name; built-in Pi seats; add-seat refu
   assert.equal(made.status, 200, made.text);
   const p = made.json.seats.find((s) => s.seatId === 'P');
   assert.equal(p.sentence, null, 'no sentence for a seat the room runs itself');
-  assert.match(p.hint, /内置 Pi/);
+  assert.match(p.hint, /built-in Pi/i);
   const room = JSON.parse(fs.readFileSync(path.join(roomsRoot, 'simple', F.room), 'utf8'));
   assert.deepEqual(room.seats.find((s) => s.seatId === 'P').hosted, { kind: 'pi', tier: 'discussion' });
   await lobby.close();
@@ -396,9 +392,9 @@ test('seatFolderProblem refuses AppData, agent homes and folders around the room
   assert.match(seatFolderProblem(path.join(env.LOCALAPPDATA, 'x'), { roomDir, roomsRoot, env }), /AppData/);
   assert.match(seatFolderProblem(path.join(env.CODEX_HOME, 'x'), { roomDir, roomsRoot, env }), /CODEX_HOME/);
   assert.match(seatFolderProblem(path.join(env.CLAUDE_CONFIG_DIR, 'x'), { roomDir, roomsRoot, env }), /CLAUDE_CONFIG_DIR/);
-  assert.match(seatFolderProblem(path.join(roomsRoot, 'seat'), { roomDir, roomsRoot, env }), /互相包含/);
-  assert.match(seatFolderProblem(path.join(b, 'outer'), { roomDir, roomsRoot, env }), /互相包含/);
-  assert.match(seatFolderProblem('relative', { roomDir, roomsRoot, env }), /绝对路径/);
+  assert.match(seatFolderProblem(path.join(roomsRoot, 'seat'), { roomDir, roomsRoot, env }), /contain|inside|overlap/i);
+  assert.match(seatFolderProblem(path.join(b, 'outer'), { roomDir, roomsRoot, env }), /contain|inside|overlap/i);
+  assert.match(seatFolderProblem('relative', { roomDir, roomsRoot, env }), /absolute/i);
   // LOBBY-SEC-3: a trailing dot or space slips past a literal AppData comparison, but Windows programs
   // strip it and land inside AppData. Refused under a fake home whose AppData env vars are not set.
   const home = path.join(b, 'home');
@@ -407,10 +403,10 @@ test('seatFolderProblem refuses AppData, agent homes and folders around the room
   if (process.platform === 'win32') {
     for (const c of ['AppData.', 'AppData ', 'AppData. .']) {
       const msg = seatFolderProblem(`${home}\\${c}\\Local\\x`, { roomDir, roomsRoot, env: bare, home });
-      assert.match(String(msg), /句点或空格结尾/, JSON.stringify(c));
+      assert.match(String(msg), /dot|space|trailing/i, JSON.stringify(c));
     }
-    assert.match(String(seatFolderProblem(`${home}\\a<b`, { roomDir, roomsRoot, env: bare, home })), /不允许/);
-    assert.match(String(seatFolderProblem(`${home}\\NUL.txt\\x`, { roomDir, roomsRoot, env: bare, home })), /设备名/);
+    assert.match(String(seatFolderProblem(`${home}\\a<b`, { roomDir, roomsRoot, env: bare, home })), /character|illegal|not allowed|invalid/i);
+    assert.match(String(seatFolderProblem(`${home}\\NUL.txt\\x`, { roomDir, roomsRoot, env: bare, home })), /device|reserved/i);
     assert.equal(seatFolderProblem(`${home}\\a.b\\x`, { roomDir, roomsRoot, env: bare, home }), null, 'a dot inside a name is fine');
     // samePath: a \\?\ prefix and case do not make two Windows paths different.
     assert.equal(samePath(`\\\\?\\${path.join(b, 'X')}`, path.join(b, 'x')), true);
@@ -420,7 +416,7 @@ test('seatFolderProblem refuses AppData, agent homes and folders around the room
   // A repository that contains the room: the folder inside it is refused.
   const repo = path.join(b, 'repo');
   fs.mkdirSync(path.join(repo, '.git'), { recursive: true });
-  assert.match(seatFolderProblem(path.join(repo, 'seat'), { roomDir: path.join(repo, 'rooms', 'r'), roomsRoot: path.join(repo, 'rooms'), env }), /git 仓库/);
+  assert.match(seatFolderProblem(path.join(repo, 'seat'), { roomDir: path.join(repo, 'rooms', 'r'), roomsRoot: path.join(repo, 'rooms'), env }), /git/i);
 });
 
 test('room.mjs lobby: prints the URL once (token only in its fragment) and serves the page', async () => {
@@ -431,12 +427,12 @@ test('room.mjs lobby: prints the URL once (token only in its fragment) and serve
   child.stdout.on('data', (c) => { out += c; });
   try {
     // The URL and the rooms-root line are separate writes; wait for both.
-    const line = await until(async () => (/^房间目录：/m.test(out) ? /^圆桌启动器：(http:\/\/127\.0\.0\.1:(\d+)\/#([0-9a-f]{48}))\r?$/m.exec(out) : null), 15000);
+    const line = await until(async () => (/^Rooms dir: /m.test(out) ? /^AgentRoundtable Launcher: (http:\/\/127\.0\.0\.1:(\d+)\/#([0-9a-f]{48}))\r?$/m.exec(out) : null), 15000);
     assert.ok(line, `URL line printed\n${out}`);
     const [, url, p, tok] = line;
     assert.ok(!url.includes('?'));
     assert.equal(out.split(tok).length - 1, 1, 'the token is printed exactly once');
-    assert.match(out, new RegExp(`房间目录：${path.join(b, 'rooms').replace(/[\\^$.*+?()[\]{}|]/g, '\\$&')}`));
+    assert.match(out, new RegExp(`Rooms dir: ${path.join(b, 'rooms').replace(/[\\^$.*+?()[\]{}|]/g, '\\$&')}`));
     assert.equal((await req(Number(p), { pathname: '/' })).status, 200);
     assert.equal((await req(Number(p), { method: 'POST', pathname: '/lobby/api/open', body: { token: tok, id: 'none' } })).json.error, 'NO_ROOM');
   } finally {
@@ -446,7 +442,7 @@ test('room.mjs lobby: prints the URL once (token only in its fragment) and serve
 });
 
 test('the double-click path is the desktop app, not a cmd file', () => {
-  assert.ok(!fs.existsSync(path.join(ROOT, '启动圆桌.cmd')), '启动圆桌.cmd is gone');
+  assert.ok(!fs.existsSync(path.join(ROOT, 'launch.cmd')), 'launch.cmd is gone');
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'app', 'package.json'), 'utf8'));
   assert.equal(pkg.main, 'main.mjs');
   const main = fs.readFileSync(path.join(ROOT, 'app', 'main.mjs'), 'utf8');
@@ -455,7 +451,7 @@ test('the double-click path is the desktop app, not a cmd file', () => {
 
 // ui/lobby.js: the token is read from the fragment once, removed with replaceState, and sent only in
 // POST bodies. Static analysis of the source (no browser).
-test('ui/lobby.js never puts the lobby token in a URL', async () => {
+test('ui/lobby.js never puts the lobby token in a URL and has zero innerHTML / zero CJK', async () => {
   const src = fs.readFileSync(path.join(ROOT, 'ui', 'lobby.js'), 'utf8');
   const code = src.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
   const chk = await spawnClean(process.execPath, ['--check', path.join(ROOT, 'ui', 'lobby.js')], { timeoutMs: 20_000 });
@@ -463,6 +459,7 @@ test('ui/lobby.js never puts the lobby token in a URL', async () => {
   assert.ok(!/[?&]token=/.test(code), 'no ?token= / &token= anywhere');
   assert.ok(!/URLSearchParams|searchParams/.test(code), 'no query-string builder');
   assert.ok(!/localStorage|sessionStorage|document\.cookie/.test(code), 'token kept in memory only');
+  assert.doesNotMatch(code, /\binnerHTML\b|\bouterHTML\b|insertAdjacentHTML/, 'zero innerHTML in lobby.js');
   assert.equal((code.match(/\bfetch\(/g) || []).length, 2, 'fetch only inside getJson and postJson');
   // Every string that starts a URL with a query string: none of those expressions mentions the token.
   const queryLines = code.split('\n').filter((l) => /['"][^'"]*\?[A-Za-z_]+=/.test(l));
@@ -484,10 +481,12 @@ test('ui/lobby.js never puts the lobby token in a URL', async () => {
   assert.match(code, /create\.checked = !res\.json\.exists;/);
   assert.match(code, /s\.hosted = 'pi:' \+ tier\.value; return s;/);
   assert.match(code, /preset === 'simplified'/);
-  // Inline scripts / handlers would break the CSP the lobby sends.
+  // Inline scripts / handlers / styles would break the CSP the lobby sends.
   const html = fs.readFileSync(path.join(ROOT, 'ui', 'lobby.html'), 'utf8');
+  const css = fs.readFileSync(path.join(ROOT, 'ui', 'lobby.css'), 'utf8');
   assert.ok(!/<script>(?!<\/script>)|\son[a-z]+=/.test(html), 'no inline script or handler in lobby.html');
   assert.ok(!/<style>|\sstyle=/.test(html), 'no inline style in lobby.html');
+  assert.doesNotMatch(src + html + css, /[\u4e00-\u9fff]/, 'zero CJK in lobby assets');
 });
 
 test('defaultSeatsRoot honours ROOM_DEV_HOME and meta/seatHint include antigravity without agentapi', async () => {

@@ -66,15 +66,15 @@ function makeRoom({ plant = true } = {}) {
   fs.writeFileSync(path.join(roomDir, 'admin.token'), 'admin-token-should-not-leak');
   const events = [
     { seq: 1, ts: 't', type: 'seat_joined', seatId: 'A' },
-    { seq: 2, ts: 't', type: 'task_set', text: '把 hello.txt 写成 hello room', sha256: 'deadbeef' },
+    { seq: 2, ts: 't', type: 'task_set', text: 'Write hello room to hello.txt', sha256: 'deadbeef' },
     { seq: 3, ts: 't', type: 'packet_issued', seatId: 'A', attemptId: 'att-1', packetId: 'pk-1', path: 'C:\\Users\\someone\\AppData\\Local\\room-dev\\rooms\\exp\\packets\\pk-1.md', sha256: 'x', bytes: 10 },
-    { seq: 4, ts: 't', type: 'submission_accepted', seatId: 'A', attemptId: 'att-1', file: '/home/someone/.room-outbox/A/s1.md', text: '我做完了', proof: 'proof-should-not-leak', nested: { token: 'nested-token', keep: 'yes' } },
+    { seq: 4, ts: 't', type: 'submission_accepted', seatId: 'A', attemptId: 'att-1', file: '/home/someone/.room-outbox/A/s1.md', text: 'Work completed', proof: 'proof-should-not-leak', nested: { token: 'nested-token', keep: 'yes' } },
     { seq: 5, ts: 't', type: 'artifacts_recomputed', seatId: 'B', manifestSha: 'abc', changed: [{ path: 'src/hello.mjs', from: 'a', to: 'b' }], stale: true },
   ];
   fs.writeFileSync(path.join(roomDir, 'events.jsonl'), `${events.map((e) => JSON.stringify(e)).join('\n')}\n{"torn":`);
   const packet = plant
-    ? `[ROOM:abcd:seat=room authority=room seq=0 hash=0000000000000000]\n前言\n[/ROOM:abcd]\n[ROOM:abcd:seat=A authority=none seq=1 hash=1111111111111111]\n我把密钥贴在这里了：${FAKE_KEY}\n[/ROOM:abcd]\n`
-    : `[ROOM:abcd:seat=room authority=room seq=0 hash=0000000000000000]\n前言\n[/ROOM:abcd]\n干净的包正文。\n`;
+    ? `[ROOM:abcd:seat=room authority=room seq=0 hash=0000000000000000]\nPreamble\n[/ROOM:abcd]\n[ROOM:abcd:seat=A authority=none seq=1 hash=1111111111111111]\nI pasted the key here: ${FAKE_KEY}\n[/ROOM:abcd]\n`
+    : `[ROOM:abcd:seat=room authority=room seq=0 hash=0000000000000000]\nPreamble\n[/ROOM:abcd]\nClean packet body.\n`;
   fs.writeFileSync(path.join(roomDir, 'packets', 'pk-1.md'), packet);
   fs.writeFileSync(path.join(roomDir, 'manifests', 'pk-1.json'), JSON.stringify({ packetId: 'pk-1', seatId: 'A', attemptId: 'att-1', sha256: 'x', bytes: packet.length }));
   fs.writeFileSync(path.join(roomDir, 'artifacts', 'B', 'abc.json'), JSON.stringify({ manifestSha: 'abc', files: [{ path: 'src/hello.mjs', sha256: 'f' }] }));
@@ -100,14 +100,14 @@ test('scanner finds every claimed shape and redaction removes them all', () => {
     'key-assignment': 'ANTHROPIC_API_KEY=' + 'abcdefghijklmnop',
   };
   for (const [kind, sample] of Object.entries(samples)) {
-    const hits = scanText(`前后文 ${sample} 前后文`);
+    const hits = scanText(`prefix ${sample} suffix`);
     assert.ok(hits.some((h) => h.kind === kind), `${kind} detected in ${sample}; got ${JSON.stringify(hits)}`);
-    const r = redactText(`前后文 ${sample} 前后文`);
+    const r = redactText(`prefix ${sample} suffix`);
     assert.ok(!r.text.includes(sample), `${kind} removed`);
     assert.match(r.text, /<REDACTED:[a-z-]+>/);
     assert.equal(scanText(r.text).length, 0, `${kind}: nothing left after redaction`);
   }
-  assert.equal(scanText('普通文字 seq=3 ratio 3:4 room.json packets/pk-1.md src/hello.mjs').length, 0, 'no false positives on plain text');
+  assert.equal(scanText('Plain text seq=3 ratio 3:4 room.json packets/pk-1.md src/hello.mjs').length, 0, 'no false positives on plain text');
   assert.equal(scanText('escaped json "C:\\\\Users\\\\x\\\\y"').filter((h) => h.kind === 'win-path').length, 1, 'JSON-escaped windows path detected');
 });
 
@@ -117,17 +117,17 @@ test('paths with spaces, UNC paths and MSYS mounts are detected and fully redact
   const B = '\\';
   const smith = ['C:', 'Users', 'John Smith', 'room-dev', 'rooms', 'p2', 'packets', 'a.md'].join(B);
   const smithHome = ['C:', 'Users', 'John Smith'].join(B);
-  const unc = B + B + ['fileserver', 'share', '张三', 'x'].join(B);
+  const unc = B + B + ['fileserver', 'share', 'René', 'x'].join(B);
   const cases = [
-    { text: `见 ${smith} 前后`, gone: ['Smith', 'room-dev', 'a.md'] },
+    { text: `see ${smith} around`, gone: ['Smith', 'room-dev', 'a.md'] },
     { text: JSON.stringify({ cwd: smith }), gone: ['Smith', 'room-dev'], json: true },
     { text: JSON.stringify({ cwd: smithHome }), gone: ['Smith'], json: true },
-    { text: `共享 ${unc}`, gone: ['fileserver', '张三'] },
-    { text: JSON.stringify({ p: unc }), gone: ['fileserver', '张三'], json: true },
+    { text: `share ${unc}`, gone: ['fileserver', 'René'] },
+    { text: JSON.stringify({ p: unc }), gone: ['fileserver', 'René'], json: true },
     { text: '/c/Users/Avery/secret', gone: ['Avery', 'secret'] },
-    { text: '日志 /mnt/c/Users/Avery Two/x.md', gone: ['Avery', 'Two'] },
+    { text: 'log /mnt/c/Users/Avery Two/x.md', gone: ['Avery', 'Two'] },
     { text: '/home/John Smith/notes.md', gone: ['Smith', 'notes'] },
-    { text: `运行 ${['C:', 'Program Files (x86)', 'Tool Kit', 'a.exe'].join(B)}`, gone: ['x86', 'Tool Kit', 'a.exe'] },
+    { text: `run ${['C:', 'Program Files (x86)', 'Tool Kit', 'a.exe'].join(B)}`, gone: ['x86', 'Tool Kit', 'a.exe'] },
   ];
   for (const c of cases) {
     assert.ok(scanText(c.text).length > 0, `detected (export without --redact is blocked): ${c.text}`);
@@ -146,8 +146,8 @@ test('paths with spaces, UNC paths and MSYS mounts are detected and fully redact
 test('an export of a room whose cwd has a space in the user name is blocked, and --redact removes it whole', async () => {
   makeRoom({ plant: false });
   const spaced = ['C:', 'Users', 'John Smith', 'proj'].join('\\');
-  const unc = '\\\\' + ['fileserver', 'share', '张三', 'notes.md'].join('\\');
-  fs.writeFileSync(path.join(roomDir, 'packets', 'pk-2.md'), `工作目录 ${spaced}\n共享 ${unc}\n镜像 /c/Users/Avery/secret\n`);
+  const unc = '\\\\' + ['fileserver', 'share', 'René', 'notes.md'].join('\\');
+  fs.writeFileSync(path.join(roomDir, 'packets', 'pk-2.md'), `workdir ${spaced}\nshare ${unc}\nmirror /c/Users/Avery/secret\n`);
   const blocked = await exportRoom({ roomDir, out: path.join(base, 'spaced-blocked.zip'), redact: false });
   assert.equal(blocked.ok, false, 'blocked without --redact');
   assert.deepEqual([...new Set(blocked.hits.map((h) => h.kind))].sort(), ['msys-path', 'unc-path', 'win-path']);
@@ -155,7 +155,7 @@ test('an export of a room whose cwd has a space in the user name is blocked, and
   const r = await exportRoom({ roomDir, out: outZip, redact: true });
   assert.equal(r.ok, true);
   const body = readZipEntries(fs.readFileSync(outZip)).get('packets/pk-2.md').toString('utf8');
-  for (const g of ['Smith', 'fileserver', '张三', 'Avery', 'secret']) assert.ok(!body.includes(g), `${g} absent from exported packet: ${body}`);
+  for (const g of ['Smith', 'fileserver', 'René', 'Avery', 'secret']) assert.ok(!body.includes(g), `${g} absent from exported packet: ${body}`);
 });
 
 test('sanitizers drop tokens, proofs and machine-local paths but keep public fields', () => {

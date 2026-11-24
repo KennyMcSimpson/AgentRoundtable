@@ -1,21 +1,21 @@
-// Plan §13.1 #35 (仿真): reversing direction (admin reverse).
+// Plan §13.1 #35 (simulation): reversing direction (admin reverse).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createSim, IR_SEATS } from '../../sim/driver.mjs';
 import { createScriptedSeat } from '../../sim/scripted-seat.mjs';
 
-test('#35 换向：当前 attempt 未终态 → 拒绝；已终态 → epoch 递增、职责互换', async () => {
+test('#35 Direction reversal: refused when attempt pending; increments epoch and swaps roles when terminal', async () => {
   const sim = await createSim({ preset: 'implement-review', seats: IR_SEATS });
   await sim.check(async () => {
-    await sim.admin({ cmd: 'task', text: '换向' });
+    await sim.admin({ cmd: 'task', text: 'Direction reversal' });
     await sim.admin({ cmd: 'start' });
     await sim.tick();
     // Work attempt of B is open
     let r = await sim.admin({ cmd: 'reverse' });
     assert.equal(r.ok, false);
     assert.equal(r.error, 'ATTEMPT_PENDING');
-    const B = createScriptedSeat({ seatId: 'B', script: [{ wait: {} }, { artifacts: { paths: ['src'] } }, { submit: 'B 完成' }, { wait: {} }, { submit: 'B 汇报' }] });
-    const A = createScriptedSeat({ seatId: 'A', script: [{ wait: {} }, { do: async (s, sm) => { s.reverseDuringMeet = await sm.admin({ cmd: 'reverse' }); } }, { submit: 'A 开题' }, { wait: {} }, { verdict: 'reject', artifact: (s, sm) => sm.latestManifest('B') }, { submit: 'A 汇总' }] });
+    const B = createScriptedSeat({ seatId: 'B', script: [{ wait: {} }, { artifacts: { paths: ['src'] } }, { submit: 'B done' }, { wait: {} }, { submit: 'B report' }] });
+    const A = createScriptedSeat({ seatId: 'A', script: [{ wait: {} }, { do: async (s, sm) => { s.reverseDuringMeet = await sm.admin({ cmd: 'reverse' }); } }, { submit: 'A opening' }, { wait: {} }, { verdict: 'reject', artifact: (s, sm) => sm.latestManifest('B') }, { submit: 'A summary' }] });
     await sim.run([A, B]);
     assert.equal(A.reverseDuringMeet.ok, false, 'refused while the lead holds a meet attempt');
     assert.equal(A.reverseDuringMeet.error, 'ATTEMPT_PENDING');

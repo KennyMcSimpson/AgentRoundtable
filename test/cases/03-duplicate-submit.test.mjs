@@ -1,4 +1,4 @@
-// Plan §13.1 #3 (仿真 +变异): the same attempt submitted twice. Mutation: test/mutations/03-no-dedupe.test.mjs.
+// Plan §13.1 #3 (simulation + mutation): the same attempt submitted twice. Mutation: test/mutations/03-no-dedupe.test.mjs.
 // The duplicate is written in the same breath as the first submission, and the service is then
 // crashed and restarted while the next seat holds its turn, so every outbox file is seen by two
 // service instances: dedupe has to hold across the restart, not just within one run.
@@ -15,21 +15,21 @@ export async function scenario({ mutate } = {}) {
       { seatId: 'B', role: 'participant', waitMode: 'turn_over', wakeThread: 'room-B' },
     ],
   });
-  await sim.admin({ cmd: 'task', text: '同一 attempt 提交两次' });
+  await sim.admin({ cmd: 'task', text: 'Duplicate submit for the same attempt' });
   await sim.admin({ cmd: 'start', order: ['A', 'B'] });
   const A = createScriptedSeat({
     seatId: 'A',
     script: [
       { wait: {} },
-      { submit: 'A-FIRST 第一次提交', async: true },
-      { submit: 'A-SECOND 同一 attempt 的第二次提交', attempt: (s) => s.taken[0], async: true },
+      { submit: 'A-FIRST initial submission', async: true },
+      { submit: 'A-SECOND duplicate submission for the same attempt', attempt: (s) => s.taken[0], async: true },
       { awaitReplies: true },
       { until: (sim) => !!sim.holding('B') },
       { crashService: true },
       { restartService: true },
       { admin: (s, sim) => ({ cmd: 'reconcile', attemptId: sim.svc.state.holding.B, action: 'replay' }) },
       { wait: {} },
-      { submit: 'A 的汇总' },
+      { submit: 'Summary from A' },
     ],
   });
   const B = createScriptedSeat({
@@ -37,7 +37,7 @@ export async function scenario({ mutate } = {}) {
     script: [
       { wait: {} },
       { until: (sim) => sim.ofType('reconciled').length > 0 },
-      { submit: 'B 的发言' },
+      { submit: 'Speech from B' },
     ],
   });
   await sim.run([A, B]);
@@ -71,7 +71,7 @@ export function invariants({ sim, A }) {
 }
 
 if (isMain(import.meta.url)) {
-  test('#3 同一 attempt 提交两次：只记第一个；下一位只唤醒一次（含服务重启后不重判）', async () => {
+  test('#3 Duplicate submit for the same attempt: only first recorded; next seat woken once (no re-judging after service restart)', async () => {
     const r = await scenario();
     await r.sim.check(() => invariants(r));
   });

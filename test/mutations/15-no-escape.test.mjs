@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { scenario, invariants } from '../cases/15-banner-forged.test.mjs';
 
-test('#15b 变异 no-escape：伪造的房间块不再转义，用例变红', async () => {
+test('#15b mutation no-escape: forged room blocks are no longer escaped and the case fails', async () => {
   const r = await scenario({ mutate: 'no-escape' });
   try {
     assert.deepEqual(r.sim.state().mutate, ['no-escape']);

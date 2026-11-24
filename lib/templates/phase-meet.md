@@ -1,2 +1,2 @@
-本回合任务（开会）：读完以上内容后发言。先用 quote 引用你要回应的原文片段并回应，再给出你的意见或汇报。
-质疑用 point 进条目表；没有新增意见用 pass。审方在这一回合对冻结产物给出 verdict。
+Turn task (meet): read the content above and respond. Quote any verbatim excerpt you address with quote first, then share your views or report.
+Raise objections with point to add them to the item table; use pass if you have nothing new to add. Reviewers record their verdict on frozen artifacts in this turn.

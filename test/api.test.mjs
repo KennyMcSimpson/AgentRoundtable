@@ -50,7 +50,7 @@ test('in-process implement-review round through the embedding API, nothing print
     assert.equal(bad.status, 'ERROR', 'duplicate seat refused as a result, not a throw');
 
     room = await openRoom({ roomDir, tickMs: 50 });
-    assert.equal((await room.admin('task', { text: '写 hello.mjs' })).ok !== false, true);
+    assert.equal((await room.admin('task', { text: 'Write hello.mjs' })).ok !== false, true);
     await room.admin('start', { order: ['A', 'B', 'A'] });
     const A = seatClient({ roomDir, seatId: 'A' });
     const B = seatClient({ roomDir, seatId: 'B' });
@@ -63,11 +63,11 @@ test('in-process implement-review round through the embedding API, nothing print
     const fr = await B.artifacts({ attemptId: wB.fields.attempt, paths: [path.join(cwdB, 'hello.mjs')], baseline: 'none' });
     assert.equal(fr.status, 'FROZEN', JSON.stringify(fr));
     const manifest = fr.fields.manifest;
-    const subB = await B.submit({ attemptId: wB.fields.attempt, text: '做了 hello.mjs' });
+    const subB = await B.submit({ attemptId: wB.fields.attempt, text: 'Created hello.mjs' });
     assert.equal(subB.status, 'ACCEPTED', JSON.stringify(subB));
 
     // Meet: A, B, A.
-    for (const [cli, text] of [[A, '开题'], [B, '回应'], [A, '复核']]) {
+    for (const [cli, text] of [[A, 'Opening'], [B, 'Response'], [A, 'Review']]) {
       const w = await until(async () => { const r = await cli.wait({ timeoutSec: 1, once: cli === A }); return r.status === 'TURN' ? r : null; });
       assert.ok(w, `${cli.seatId} gets a meet turn`);
       const s = await cli.submit({ attemptId: w.fields.attempt, text });
@@ -76,9 +76,9 @@ test('in-process implement-review round through the embedding API, nothing print
     // Summary: A gives a verdict on B's frozen manifest.
     const wS = await until(async () => { const r = await A.wait({ once: true }); return r.status === 'TURN' ? r : null; });
     assert.ok(wS, 'A gets the summary turn');
-    const v = await A.verdict({ attemptId: wS.fields.attempt, value: 'pass', artifact: manifest, text: '通过' });
+    const v = await A.verdict({ attemptId: wS.fields.attempt, value: 'pass', artifact: manifest, text: 'Approved' });
     assert.equal(v.status, 'ACCEPTED', JSON.stringify(v));
-    const sum = await A.submit({ attemptId: wS.fields.attempt, text: '汇总：通过' });
+    const sum = await A.submit({ attemptId: wS.fields.attempt, text: 'Summary: passed' });
     assert.equal(sum.status, 'ACCEPTED');
     const done = await until(() => room.view().phase === 'done');
     assert.ok(done, `round done, phase=${room.view().phase}`);
@@ -112,13 +112,13 @@ test('openRoom passes hostedProviders through: a lane seat speaks without any ke
   const sl = await addSeat({ dir: roomDir, seat: 'L', role: 'participant', hosted: 'lane:claude-code', cwd: cwdL });
   assert.equal(sl.status, 'SEAT', JSON.stringify(sl));
   const prompts = [];
-  const room = await openRoom({ roomDir, tickMs: 50, hostedProviders: { lane: () => ({ busy: false, prompt: async (t) => { prompts.push(t); return { text: '通道发言', stopReason: 'end_turn', usage: null }; } }) } });
+  const room = await openRoom({ roomDir, tickMs: 50, hostedProviders: { lane: () => ({ busy: false, prompt: async (t) => { prompts.push(t); return { text: 'Lane speech', stopReason: 'end_turn', usage: null }; } }) } });
   try {
-    await room.admin('task', { text: '讨论' });
+    await room.admin('task', { text: 'Discussion' });
     await room.admin('start', {});
     const A = seatClient({ roomDir, seatId: 'A' });
     const w = await until(async () => { const r = await A.wait({ timeoutSec: 1 }); return r.status === 'TURN' ? r : null; });
-    await A.submit({ attemptId: w.fields.attempt, text: '开题' });
+    await A.submit({ attemptId: w.fields.attempt, text: 'Opening' });
     const ok = await until(() => room.events().some((e) => e.type === 'submission_accepted' && e.seatId === 'L'));
     assert.ok(ok, 'lane seat spoke');
     assert.equal(prompts.length, 1);
@@ -141,15 +141,15 @@ test('a hosted seat records --model; the lane provider factory sees it on seat.h
   assert.match(sl.lines[0], /hosted=lane:custom-provider:discussion model=example-model-x/);
   const seatJson = JSON.parse(fs.readFileSync(path.join(roomDir, 'seats', 'L', 'seat.json'), 'utf8'));
   assert.deepEqual(seatJson.hosted, { kind: 'lane', lane: 'custom-provider', tier: 'discussion', model: 'example-model-x' });
-  assert.match(fs.readFileSync(path.join(roomDir, 'seats', 'L', 'JOIN.md'), 'utf8'), /模型：example-model-x/);
+  assert.match(fs.readFileSync(path.join(roomDir, 'seats', 'L', 'JOIN.md'), 'utf8'), /Model: example-model-x/);
   const seen = [];
-  const room = await openRoom({ roomDir, tickMs: 50, hostedProviders: { lane: ({ seat }) => { seen.push(seat.hosted); return { busy: false, prompt: async () => ({ text: '常驻席位发言', stopReason: 'end_turn', usage: null }) }; } } });
+  const room = await openRoom({ roomDir, tickMs: 50, hostedProviders: { lane: ({ seat }) => { seen.push(seat.hosted); return { busy: false, prompt: async () => ({ text: 'Hosted seat speech', stopReason: 'end_turn', usage: null }) }; } } });
   try {
-    await room.admin('task', { text: '讨论' });
+    await room.admin('task', { text: 'Discussion' });
     await room.admin('start', {});
     const A = seatClient({ roomDir, seatId: 'A' });
     const w = await until(async () => { const r = await A.wait({ timeoutSec: 1 }); return r.status === 'TURN' ? r : null; });
-    await A.submit({ attemptId: w.fields.attempt, text: '开题' });
+    await A.submit({ attemptId: w.fields.attempt, text: 'Opening' });
     await until(() => room.events().some((e) => e.type === 'submission_accepted' && e.seatId === 'L'));
     assert.equal(seen.length, 1);
     assert.equal(seen[0].model, 'example-model-x', 'the host reads the model from seat.hosted.model');
@@ -165,7 +165,7 @@ test('seatClient.wait: a rooms root with a space in it still yields the whole pa
   assert.equal((await addSeat({ dir: roomDir, seat: 'A', role: 'lead', agent: 'pi-user', wait: 'manual', cwd: cwdA })).status, 'SEAT');
   const room = await openRoom({ roomDir, tickMs: 50 });
   try {
-    await room.admin('task', { text: '讨论' });
+    await room.admin('task', { text: 'Discussion' });
     await room.admin('start', {});
     const A = seatClient({ roomDir, seatId: 'A' });
     const w = await until(async () => { const r = await A.wait({ once: true }); return r.status === 'TURN' ? r : null; });
@@ -191,7 +191,7 @@ test('addSeat: explicit --agent antigravity gets background wait without wake; -
   assert.equal(seatA.agent, 'antigravity');
   assert.equal(seatA.waitMode, 'background');
   assert.equal(seatA.wake.enabled, false);
-  assert.match(fs.readFileSync(path.join(roomDir, 'seats', 'A', 'JOIN.md'), 'utf8'), /JOIN 变体 antigravity/);
+  assert.match(fs.readFileSync(path.join(roomDir, 'seats', 'A', 'JOIN.md'), 'utf8'), /JOIN variant antigravity/);
 
   const sb = await addSeat({ dir: roomDir, seat: 'B', role: 'participant', agent: 'generic', cwd: cwdGeneric });
   assert.equal(sb.status, 'SEAT', JSON.stringify(sb));

@@ -18,7 +18,7 @@ function isMain() {
 }
 
 if (isMain()) {
-  const usage = '用法：node dist/export.mjs <roomDir> <out.zip> [--redact]';
+  const usage = 'Usage: node dist/export.mjs <roomDir> <out.zip> [--redact]';
   let opts;
   try { opts = parseExportArgs(process.argv.slice(2)); } catch (e) { process.stderr.write(`ERROR ${e.message}\n${usage}\n`); process.exit(9); }
   if (opts.help || opts.positional.length !== 2) { process.stdout.write(`${usage}\n`); process.exit(opts.help ? 0 : 9); }

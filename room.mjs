@@ -59,15 +59,15 @@
 //     node room.mjs audit --seat <seatDir> [--packet <id>] [--verbose]
 //   Drive (optional seat-side client driver, run by the user outside the room service; never loaded by `serve`):
 //     node room.mjs drive --seat <seatDir> [--runner codex-cli] --model <id> --effort <level> [--codex-exe <path>] [--max-turns <n>]
-//   Lobby (what the desktop app 圆桌.exe runs in its utility process, app/main.mjs; or by hand):
-//     node room.mjs lobby [--port N] [--rooms-root <dir>] [--resume] [--lang zh-CN|en] [--open]
+//   Lobby (what the desktop app AgentRoundtable runs in its utility process, app/main.mjs; or by hand):
+//     node room.mjs lobby [--port N] [--rooms-root <dir>] [--resume] [--lang en] [--open]
 //                         (loopback page on 127.0.0.1:N, default 7380 or a free port when that is busy, for
 //                          creating rooms and seats, opening a room's UI and giving it a task. Prints its URL
 //                          once, with the per-launch lobby token in the fragment; --open opens it in the
 //                          default browser. Runs until Ctrl+C or the console window closes, or, inside the
 //                          app, until the app sends {t:'quit'}; then stops every room it opened)
 //   Daemon (persistent multi-room host + lobby + SSE + live room auto-resume):
-//     node room.mjs daemon [--port N] [--rooms-root <dir>] [--no-resume] [--lang zh-CN|en] [--open]
+//     node room.mjs daemon [--port N] [--rooms-root <dir>] [--no-resume] [--lang en] [--open]
 //     node room.mjs daemon status [--rooms-root <dir>]
 import fs from 'node:fs';
 import { parseArgs, defaultRoomsRoot } from './lib/common.mjs';
@@ -93,14 +93,14 @@ async function runLobby(a, { daemon = false } = {}) {
   let port;
   if (a.port !== undefined) {
     port = Number(a.port);
-    if (a.port === true || !Number.isInteger(port) || port < 0 || port > 65535) { process.stderr.write('ERROR --port 要是 0 到 65535 的整数\n'); return 9; }
+    if (a.port === true || !Number.isInteger(port) || port < 0 || port > 65535) { process.stderr.write('ERROR --port must be an integer between 0 and 65535\n'); return 9; }
   }
   const roomsRoot = typeof a['rooms-root'] === 'string' && a['rooms-root'].trim() ? a['rooms-root'].trim() : undefined;
   let defaultLang;
   if (a.lang !== undefined) {
     const { SUPPORTED_LANGS } = await import('./lib/i18n.mjs');
     if (typeof a.lang !== 'string' || !SUPPORTED_LANGS.includes(a.lang.trim())) {
-      process.stderr.write(`ERROR --lang 仅支持：${SUPPORTED_LANGS.join(', ')}\n`);
+      process.stderr.write(`ERROR --lang supports only: ${SUPPORTED_LANGS.join(', ')}\n`);
       return 9;
     }
     defaultLang = a.lang.trim();
@@ -118,22 +118,22 @@ async function runLobby(a, { daemon = false } = {}) {
     log,
     openBrowser: a.open === true,
   });
-  log(`圆桌启动器：${lobby.url}`);
+  log(`AgentRoundtable Launcher: ${lobby.url}`);
   // Under the desktop app (utilityProcess: process.parentPort) the app window shows the page, so the
   // browser / console-window hint would only mislead its log.
   if (!process.parentPort) log(a.open === true
-    ? '正在默认浏览器里打开上面的地址；没打开就把它复制到浏览器。关闭本窗口或按 Ctrl+C 即退出，并停止从这里打开的房间。'
-    : '在浏览器里打开上面的地址。关闭本窗口或按 Ctrl+C 即退出，并停止从这里打开的房间。');
-  log(`房间目录：${lobby.roomsRoot}`);
+    ? 'Opening the URL above in your default browser; if it does not open, copy it into your browser. Close this window or press Ctrl+C to exit and stop every room opened here.'
+    : 'Open the URL above in your browser. Close this window or press Ctrl+C to exit and stop every room opened here.');
+  log(`Rooms dir: ${lobby.roomsRoot}`);
   if (daemon) {
-    log(`常驻守护模式：pid=${process.pid} port=${lobby.port} resumed=${lobby.resumed.length}${lobby.resumed.length ? ` (${lobby.resumed.join(',')})` : ''}`);
+    log(`Daemon mode: pid=${process.pid} port=${lobby.port} resumed=${lobby.resumed.length}${lobby.resumed.length ? ` (${lobby.resumed.join(',')})` : ''}`);
   }
   // Closing the console window arrives as SIGHUP, Ctrl+Break as SIGBREAK (the same set as serve()).
   const signals = ['SIGINT', 'SIGTERM', 'SIGHUP', ...(process.platform === 'win32' ? ['SIGBREAK'] : [])];
   await new Promise((resolve) => { for (const sig of signals) process.once(sig, resolve); });
-  log('正在退出：停止从这里打开的房间……');
+  log('Exiting: stopping rooms opened here...');
   await lobby.close();
-  log('已退出。');
+  log('Exited.');
   return 0;
 }
 
@@ -173,7 +173,7 @@ async function main() {
     case 'serve': {
       if (!args.dir || args.dir === true) { process.stderr.write('ERROR serve needs --dir <roomDir>\n'); return 9; }
       const piApiKey = args['pi-key-stdin'] === true ? readKeyFromStdin() : null;
-      if (piApiKey === '') { process.stderr.write('ERROR --pi-key-stdin: 标准输入里没有 key（用管道传入，例如 <输出 key 的命令> | node room.mjs serve ... --pi-key-stdin）\n'); return 9; }
+      if (piApiKey === '') { process.stderr.write('ERROR --pi-key-stdin: no key on stdin (pipe it in, e.g. <command printing key> | node room.mjs serve ... --pi-key-stdin)\n'); return 9; }
       const { serve } = await import('./lib/service.mjs');
       await serve({ roomDir: args.dir, tickMs: Number(args.tick || 400), once: args.once === true, ...(args.port ? { port: Number(args.port) } : {}), ...(piApiKey ? { piApiKey } : {}) });
       return 0;

@@ -82,7 +82,7 @@ test('build --no-download produces the zip and reports placeholder', () => {
 
 test('zip lists launcher, THIRD-PARTY, BUILD.json, node placeholder and the project files', () => {
   const names = [...entries.keys()];
-  for (const expected of [`${top}/启动器.cmd`, `${top}/THIRD-PARTY.md`, `${top}/BUILD.json`, `${top}/node/PLACEHOLDER.txt`, `${top}/app/room.mjs`, `${top}/app/package.json`, `${top}/app/README.md`, `${top}/app/LICENSE`, `${top}/app/docs/INTERFACES.md`]) {
+  for (const expected of [`${top}/launch.cmd`, `${top}/THIRD-PARTY.md`, `${top}/BUILD.json`, `${top}/node/PLACEHOLDER.txt`, `${top}/app/room.mjs`, `${top}/app/package.json`, `${top}/app/README.md`, `${top}/app/LICENSE`, `${top}/app/docs/INTERFACES.md`]) {
     assert.ok(entries.has(expected), `entry ${expected} present; have ${names.filter((n) => !n.includes('/app/lib/')).join(', ')}`);
   }
   const libFiles = fs.readdirSync(path.join(ROOT, 'lib')).filter((f) => f.endsWith('.mjs'));
@@ -93,6 +93,7 @@ test('zip lists launcher, THIRD-PARTY, BUILD.json, node placeholder and the proj
   }
   assert.ok(!names.some((n) => n.includes('/app/test/') || n.includes('/app/dist/') || n.includes('node_modules')), 'tests, dist tooling and node_modules are not packed');
   assert.ok(!names.some((n) => n.includes('/app/docs/internal/')), 'docs/internal/ (machine-specific records) is not packed');
+  assert.ok(!names.some((n) => n.includes('/app/docs/assets/')), 'docs/assets/ (README artwork and screenshots) is not packed');
   assert.ok(!names.some((n) => n.endsWith('/')), 'no directory entries');
   assert.ok(names.every((n) => n.startsWith(`${top}/`)), 'every entry under the top-level folder');
 });
@@ -110,8 +111,8 @@ test('entry bytes equal the source files and CRCs are right', () => {
   assert.match(placeholder, /--no-download/);
 });
 
-test('launcher is rendered: no placeholders left, CRLF, no BOM, ASCII first line, Chinese prose', () => {
-  const cmd = entries.get(`${top}/启动器.cmd`).data;
+test('launcher is rendered: no placeholders left, CRLF, no BOM, ASCII first line, English prose', () => {
+  const cmd = entries.get(`${top}/launch.cmd`).data;
   assert.notEqual(cmd[0], 0xef, 'no BOM');
   const text = cmd.toString('utf8');
   assert.ok(text.startsWith('@echo off\r\n'), 'starts with @echo off + CRLF');
@@ -124,20 +125,20 @@ test('launcher is rendered: no placeholders left, CRLF, no BOM, ASCII first line
   assert.match(text, /set "NODE_EXE=%ROOT%node\\node\.exe"/);
   assert.match(text, /set "NODE_EXE=node"/);
   assert.ok(!/admin\.token|#token=|serve --dir/.test(text), 'no room token or direct serve in the launcher');
-  assert.match(text, /本包未附带运行时/, 'placeholder build says the runtime is not bundled');
-  assert.match(text, /依赖声明/);
+  assert.match(text, /Runtime not bundled in this archive/, 'placeholder build says the runtime is not bundled');
+  assert.match(text, /Requirements/);
 });
 
 // W1: the launcher must put rooms where defaultRoomsRoot() says, never under AppData (INTERFACES §1).
 test('launcher rooms root is never AppData and follows ROOM_DEV_HOME like appRoot()', async () => {
-  const text = entries.get(`${top}/启动器.cmd`).data.toString('utf8');
+  const text = entries.get(`${top}/launch.cmd`).data.toString('utf8');
   assert.ok(!/%(?:LOCAL)?APPDATA%/i.test(text), 'rendered launcher never names %LOCALAPPDATA% or %APPDATA%');
   const { checkLauncher } = await import('../dist/build.mjs');
   assert.doesNotThrow(() => checkLauncher(text));
   assert.throws(() => checkLauncher(text.replace('%USERPROFILE%\\room-dev\\rooms', '%LOCALAPPDATA%\\room-dev\\rooms')), /AppData/);
   assert.throws(() => checkLauncher(text.replace(/^if defined ROOM_DEV_HOME.*$/m, 'rem')), /ROOM_DEV_HOME/);
   assert.throws(() => checkLauncher(text.replace(/^("%NODE_EXE%" "%APP%") lobby --open/m, '$1 serve --dir x')), /lobby/);
-  assert.throws(() => checkLauncher(text.replace(/^"%NODE_EXE%" -e .*$/m, 'rem')), /node 版本/);
+  assert.throws(() => checkLauncher(text.replace(/^"%NODE_EXE%" -e .*$/m, 'rem')), /Node version/);
   if (process.platform !== 'win32') return;
   // Execute the launcher's own prefix (everything up to the ROOMS lines) in cmd.exe and compare with
   // defaultRoomsRoot() evaluated by node under the same environment.
@@ -150,8 +151,8 @@ test('launcher rooms root is never AppData and follows ROOM_DEV_HOME like appRoo
   fs.writeFileSync(probe, `${[...lines.slice(0, last + 1), 'echo ROOMS=%ROOMS%', 'endlocal'].join('\r\n')}\r\n`);
   const { spawnClean } = await import('../lib/spawn.mjs');
   const commonUrl = new URL('../lib/common.mjs', import.meta.url).href;
-  const fakeHome = path.join(base, 'home 房间');
-  for (const devHome of [null, path.join(base, 'dev home 中文')]) {
+  const fakeHome = path.join(base, 'home café');
+  for (const devHome of [null, path.join(base, 'dev home über')]) {
     const env = { USERPROFILE: fakeHome, ROOM_DEV_HOME: devHome };
     const cmd = await spawnClean(process.env.ComSpec || 'cmd.exe', ['/d', '/c', probe], { env, cwd: probeDir, timeoutMs: 20_000 });
     assert.equal(cmd.code, 0, `probe exit 0\n${cmd.stdout}\n${cmd.stderr}`);
@@ -163,10 +164,10 @@ test('launcher rooms root is never AppData and follows ROOM_DEV_HOME like appRoo
   }
 });
 
-// F6: an old node (bundled or the PATH fallback) stops with the Chinese 'install Node 22' message
+// F6: an old node (bundled or the PATH fallback) stops with the 'Node.js 22' message
 // before room.mjs runs; a current node passes the probe.
 test('launcher probes the node version before running room.mjs', async () => {
-  const text = entries.get(`${top}/启动器.cmd`).data.toString('utf8');
+  const text = entries.get(`${top}/launch.cmd`).data.toString('utf8');
   const lines = text.split('\r\n');
   const from = lines.findIndex((l) => l.startsWith('"%NODE_EXE%" -e '));
   const run = lines.findIndex((l) => l.startsWith('"%NODE_EXE%" "%APP%"'));
@@ -211,7 +212,7 @@ test('BUILD.json inventory covers every other entry with matching sha256', async
 test('--node-version is validated and unknown flags are refused', () => {
   const bad = spawnSync(process.execPath, [BUILD, '--no-download', '--out', outDir, '--bogus'], { encoding: 'utf8' });
   assert.equal(bad.status, 9);
-  assert.match(bad.stderr, /未知参数/);
+  assert.match(bad.stderr, /Unknown option/);
   const help = spawnSync(process.execPath, [BUILD, '--help'], { encoding: 'utf8' });
   assert.equal(help.status, 0);
   assert.match(help.stdout, /--no-download/);
@@ -220,16 +221,16 @@ test('--node-version is validated and unknown flags are refused', () => {
 test('zip writer round-trips through the independent reader (stored + deflate, unicode names)', async () => {
   const { ZipWriter } = await import('../dist/build.mjs');
   const w = new ZipWriter({ level: 6 });
-  const big = Buffer.from('房间 '.repeat(5000), 'utf8');
+  const big = Buffer.from('café '.repeat(5000), 'utf8');
   const tiny = Buffer.from('x');
-  w.add('目录/大文件.txt', big);
+  w.add('café/résumé.txt', big);
   w.add('tiny.bin', tiny);
   w.add('empty.txt', Buffer.alloc(0));
   w.add('stored.bin', big, { store: true });
   const m = listZip(w.finish());
   assert.equal(m.size, 4);
-  assert.equal(m.get('目录/大文件.txt').method, 8, 'compressible entry deflated');
-  assert.ok(m.get('目录/大文件.txt').data.equals(big));
+  assert.equal(m.get('café/résumé.txt').method, 8, 'compressible entry deflated');
+  assert.ok(m.get('café/résumé.txt').data.equals(big));
   assert.equal(m.get('tiny.bin').method, 0, 'tiny entry stored');
   assert.equal(m.get('empty.txt').data.length, 0);
   assert.equal(m.get('stored.bin').method, 0, 'store option honoured');

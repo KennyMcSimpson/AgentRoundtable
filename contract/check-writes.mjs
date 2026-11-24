@@ -8,7 +8,7 @@
 // The write-log is the room's own account (lib/guard.mjs appends one line per write), so this check
 // proves "every write the guard saw was in bounds", not "no write happened elsewhere": a write that
 // bypasses the guard never reaches the log. The independent check is a ProcMon / ETW pass, which the
-// plan schedules for P3. Report wording therefore stays "未观测到".
+// plan schedules for P3. Report wording therefore stays "not observed".
 //
 //   node contract/check-writes.mjs <roomDir> [--outbox <dir>]...
 // Outboxes default to the seats listed in <roomDir>/room.json; --outbox adds more (its basename is
@@ -134,43 +134,43 @@ const fmtCounts = (c) => Object.entries(c).map(([k, v]) => `${k}=${v}`).join(' '
 
 export function main(argv, { out = (l) => process.stdout.write(`${l}\n`) } = {}) {
   const args = parseCli(argv);
-  if (!args._[0]) { out('FAIL check-writes: 用法 check-writes.mjs <roomDir> [--outbox <dir>]...'); return 1; }
+  if (!args._[0]) { out('FAIL check-writes: usage: check-writes.mjs <roomDir> [--outbox <dir>]...'); return 1; }
   const roomDir = path.resolve(args._[0]);
   const { outboxes, cwds } = collectSeats(roomDir, args.outbox);
   let failed = false;
   const report = (res, label, scopeText) => {
-    if (res.violations.length === 0) out(`PASS ${label}: ${res.total} 条写入（${fmtCounts(res.counts)}），在 write-log 方法下未观测到${scopeText}之外的写入`);
+    if (res.violations.length === 0) out(`PASS ${label}: ${res.total} writes (${fmtCounts(res.counts)}); writes outside ${scopeText} were not observed under the write-log method`);
     else {
       failed = true;
-      out(`FAIL ${label}: ${res.total} 条写入（${fmtCounts(res.counts)}），在 write-log 方法下观测到 ${res.violations.length} 条越界或异常`);
+      out(`FAIL ${label}: ${res.total} writes (${fmtCounts(res.counts)}); ${res.violations.length} out-of-bounds or malformed entries were observed under the write-log method`);
       for (const v of res.violations) out(`  ${v.reason} who=${v.who} op=${v.op} path=${v.path}`);
     }
   };
 
-  if (!fs.existsSync(roomDir)) { out(`FAIL write-log(room): 房间目录不存在 ${roomDir}`); return 1; }
+  if (!fs.existsSync(roomDir)) { out(`FAIL write-log(room): room directory does not exist: ${roomDir}`); return 1; }
   const redirect = virtualizationRedirect(roomDir);
-  if (redirect) { failed = true; out(`FAIL location(room): 房间目录被重定向到 ${redirect.real}${redirect.packaged ? '（MSIX 包虚拟化，其他进程看不到原路径）' : ''}`); }
-  else out(`PASS location(room): 在 realpath 比对下未观测到房间目录被重定向（${roomDir}）`);
+  if (redirect) { failed = true; out(`FAIL location(room): room directory was redirected to ${redirect.real}${redirect.packaged ? ' (MSIX package virtualization; other processes cannot see the original path)' : ''}`); }
+  else out(`PASS location(room): redirection of the room directory was not observed under realpath comparison (${roomDir})`);
 
   const roomLog = path.join(roomDir, 'write-log.jsonl');
   const roomRes = checkWriteLog({ entries: readWriteLog(roomLog), roomDir, outboxes, seatCwds: cwds, source: 'room', canon: canonicalPath });
-  if (roomRes.total === 0) { failed = true; out(`FAIL write-log(room): ${roomLog} 为空或不存在，无法观测`); }
-  else report(roomRes, 'write-log(room)', '房间目录（含 snapshots/）');
+  if (roomRes.total === 0) { failed = true; out(`FAIL write-log(room): ${roomLog} is empty or missing; nothing to observe`); }
+  else report(roomRes, 'write-log(room)', 'the room directory (including snapshots/)');
   out(`RAW ${roomLog}`);
   if (roomRes.total > 0) {
     const n = Object.keys(cwds).length;
-    if (roomRes.inSeatCwd === 0) out(`PASS write-log(workdir): 房间侧 ${roomRes.total} 条写入，在 write-log 方法下未观测到落在 ${n} 个席位工作目录内的写入（#43 的 write-log 部分；写句柄与 git 调用由 P3 ProcMon 复核）`);
-    else { failed = true; out(`FAIL write-log(workdir): 在 write-log 方法下观测到 ${roomRes.inSeatCwd} 条房间侧写入落在席位工作目录内`); }
+    if (roomRes.inSeatCwd === 0) out(`PASS write-log(workdir): ${roomRes.total} room-side writes; writes inside ${n} seat working directories were not observed under the write-log method (write-log portion of #43; write handles and git invocations are verified by P3 ProcMon)`);
+    else { failed = true; out(`FAIL write-log(workdir): ${roomRes.inSeatCwd} room-side writes inside seat working directories were observed under the write-log method`); }
   }
 
   for (const [seatId, outbox] of Object.entries(outboxes).sort()) {
     const seatLog = path.join(outbox, 'write-log.jsonl');
     const res = checkWriteLog({ entries: readWriteLog(seatLog), roomDir, outboxes, seatCwds: cwds, source: `seat:${seatId}`, canon: canonicalPath });
-    if (res.total === 0) out(`SKIP write-log(seat ${seatId}): 发件箱无 write-log（该席位未运行过 room 命令），无写入可观测`);
-    else report(res, `write-log(seat ${seatId})`, '本席位发件箱');
+    if (res.total === 0) out(`SKIP write-log(seat ${seatId}): no write-log in outbox (this seat has not run a room command); no writes to observe`);
+    else report(res, `write-log(seat ${seatId})`, "this seat's outbox");
     out(`RAW ${seatLog}`);
   }
-  if (Object.keys(outboxes).length === 0) out('INFO write-log: 没有已知的席位发件箱（room.json 无席位且未给 --outbox）');
+  if (Object.keys(outboxes).length === 0) out('INFO write-log: no known seat outboxes (room.json has no seats and no --outbox was given)');
   return failed ? 1 : 0;
 }
 

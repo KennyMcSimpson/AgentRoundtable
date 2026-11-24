@@ -1,10 +1,10 @@
-// Mutation for the audit item of plan §12.4 (去掉审计): the simulation part of #9
+// Mutation for the audit item of plan §12.4 (remove audit): the simulation part of #9
 // (test/cases/09-reviewer-write-tainted.test.mjs) must turn red when the service skips the audit.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { scenario, invariants } from '../cases/09-reviewer-write-tainted.test.mjs';
 
-test('#9 变异 no-audit：审方回合不再审计，写操作的 verdict 不再标 tainted，用例变红', async () => {
+test('#9 mutation no-audit: reviewer turn is no longer audited, write verdict is no longer marked tainted, and the case fails', async () => {
   const r = await scenario({ mutate: 'no-audit' });
   try {
     assert.deepEqual(r.sim.state().mutate, ['no-audit']);

@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { scenario, invariants } from '../cases/20-mismatched-attempt.test.mjs';
 
-test('#20 变异 no-attempt-check：错配 attemptId 的提交被当成持有 attempt 接受，用例变红', async () => {
+test('#20 mutation no-attempt-check: submission with mismatched attemptId is accepted for the held attempt and the case fails', async () => {
   const r = await scenario({ mutate: 'no-attempt-check' });
   try {
     assert.deepEqual(r.sim.state().mutate, ['no-attempt-check']);

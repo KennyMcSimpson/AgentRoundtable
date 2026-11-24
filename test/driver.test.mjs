@@ -231,18 +231,18 @@ test('buildCodexExecArgs places all options before resume <threadId> -, rejects 
 
   const parsed = parseCodexJsonOutput([
     JSON.stringify({ type: 'thread.started', thread_id: SYNTHETIC_THREAD_ID }),
-    JSON.stringify({ type: 'item.completed', thread_id: '--dangerously-bypass-approvals-and-sandbox', item: { type: 'agent_message', text: '草稿一' } }),
+    JSON.stringify({ type: 'item.completed', thread_id: '--dangerously-bypass-approvals-and-sandbox', item: { type: 'agent_message', text: 'draft one' } }),
     JSON.stringify({ type: 'thread.started', thread_id: '01a0f000-0000-7000-8000-999999999999' }),
-    JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: '最终发言' } }),
+    JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'final speech' } }),
   ].join('\n'));
-  assert.deepEqual(parsed, { threadId: SYNTHETIC_THREAD_ID, replyText: '最终发言' });
+  assert.deepEqual(parsed, { threadId: SYNTHETIC_THREAD_ID, replyText: 'final speech' });
 
   const parsedDirtyOnly = parseCodexJsonOutput([
     JSON.stringify({ type: 'thread.started', thread_id: '--yolo' }),
     JSON.stringify({ type: 'thread.started', thread_id: 'bad space id' }),
-    JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: '无合法会话号仍可交卷' } }),
+    JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'can still submit without a valid thread id' } }),
   ].join('\n'));
-  assert.deepEqual(parsedDirtyOnly, { threadId: null, replyText: '无合法会话号仍可交卷' });
+  assert.deepEqual(parsedDirtyOnly, { threadId: null, replyText: 'can still submit without a valid thread id' });
 });
 
 test('multi-turn drive with fake Codex CLI: in-turn artifacts+submit is idempotent, second turn resumes and auto-submits, ROOM_CLOSED exits 0', async () => {
@@ -287,14 +287,14 @@ test('multi-turn drive with fake Codex CLI: in-turn artifacts+submit is idempote
     "  const r1 = spawnSync(process.execPath, [roomMjs, 'artifacts', '--seat', seatDir, '--attempt', attemptId, '--declare', 'hello.txt', '--baseline', 'none'], { encoding: 'utf8', windowsHide: true });",
     "  if (r1.status !== 0) { process.stderr.write(r1.stderr || r1.stdout || 'artifacts failed'); process.exit(2); }",
     "  const sp = path.join(process.cwd(), `speech-${attemptId}.md`);",
-    "  fs.writeFileSync(sp, '已完成 hello.txt 并冻结产物', 'utf8');",
+    "  fs.writeFileSync(sp, 'Finished hello.txt and froze artifacts', 'utf8');",
     "  const r2 = spawnSync(process.execPath, [roomMjs, 'submit', '--seat', seatDir, '--attempt', attemptId, '--file', sp], { encoding: 'utf8', windowsHide: true });",
     "  if (r2.status !== 0) { process.stderr.write(r2.stderr || r2.stdout || 'submit failed'); process.exit(2); }",
     '  process.stdout.write(JSON.stringify({ type: "thread.started", thread_id: threadId }) + "\\n");',
-    '  process.stdout.write(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "回合内已自行交卷，外层不应重复提交" } }) + "\\n");',
+    '  process.stdout.write(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "Already submitted inside the turn; outer driver should not resubmit" } }) + "\\n");',
     '} else {',
     '  process.stdout.write(JSON.stringify({ type: "thread.started", thread_id: threadId }) + "\\n");',
-    '  process.stdout.write(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "执行者会议回合自动交卷发言" } }) + "\\n");',
+    '  process.stdout.write(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "Executor meet-turn auto-submitted speech" } }) + "\\n");',
     '}',
     '',
   ].join('\n'), 'utf8');
@@ -307,7 +307,7 @@ test('multi-turn drive with fake Codex CLI: in-turn artifacts+submit is idempote
   let driveErr = '';
 
   try {
-    await room.admin('task', { text: '实现 hello.txt 并评审' });
+    await room.admin('task', { text: 'Implement hello.txt and review it' });
     await room.admin('start', { order: ['A', 'B', 'A'] });
 
     driveChild = spawn(process.execPath, [
@@ -338,20 +338,20 @@ test('multi-turn drive with fake Codex CLI: in-turn artifacts+submit is idempote
     // B handles Work turn automatically via drive (in-turn artifacts + submit). Wait for A's first Meet turn.
     const wA1 = await until(async () => { const r = await A.wait({ once: true }); return r.status === 'TURN' ? r : null; });
     assert.ok(wA1, `A gets meet turn 1; driveOut=${driveOut} driveErr=${driveErr}`);
-    assert.equal((await A.submit({ attemptId: wA1.fields.attempt, text: '开题：请执行者说明产物' })).status, 'ACCEPTED');
+    assert.equal((await A.submit({ attemptId: wA1.fields.attempt, text: 'Opening: executor, please describe the artifacts' })).status, 'ACCEPTED');
 
     // B handles Meet turn automatically via drive (resume + JSONL auto-submit). Wait for A's second Meet turn.
     const wA2 = await until(async () => { const r = await A.wait({ once: true }); return r.status === 'TURN' ? r : null; });
     assert.ok(wA2, `A gets meet turn 2; driveOut=${driveOut} driveErr=${driveErr}`);
-    assert.equal((await A.submit({ attemptId: wA2.fields.attempt, text: '复核完毕' })).status, 'ACCEPTED');
+    assert.equal((await A.submit({ attemptId: wA2.fields.attempt, text: 'Review complete' })).status, 'ACCEPTED');
 
     // Summary turn on A: give pass verdict on B's frozen artifact and submit summary.
     const wSum = await until(async () => { const r = await A.wait({ once: true }); return r.status === 'TURN' ? r : null; });
     assert.ok(wSum, 'A gets summary turn');
     const frozenEvt = room.events().find((e) => e.type === 'artifacts_frozen' && e.seatId === 'B');
     assert.ok(frozenEvt, 'B froze its artifact');
-    assert.equal((await A.verdict({ attemptId: wSum.fields.attempt, value: 'pass', artifact: frozenEvt.manifestSha, text: '通过' })).status, 'ACCEPTED');
-    assert.equal((await A.submit({ attemptId: wSum.fields.attempt, text: '汇总：全部通过' })).status, 'ACCEPTED');
+    assert.equal((await A.verdict({ attemptId: wSum.fields.attempt, value: 'pass', artifact: frozenEvt.manifestSha, text: 'Approved' })).status, 'ACCEPTED');
+    assert.equal((await A.submit({ attemptId: wSum.fields.attempt, text: 'Summary: all passed' })).status, 'ACCEPTED');
     assert.ok(await until(() => room.view().phase === 'done'), 'round reached done');
 
     // Close the room so `drive` observes ROOM_CLOSED and exits 0.
@@ -370,7 +370,7 @@ test('multi-turn drive with fake Codex CLI: in-turn artifacts+submit is idempote
     assert.deepEqual(rejected, [], 'zero duplicate/rejected submissions');
     const bMsgs = room.events().filter((e) => e.type === 'submission_accepted' && e.seatId === 'B');
     assert.equal(bMsgs.length, 2);
-    assert.match(bMsgs[1].text, /执行者会议回合自动交卷发言/);
+    assert.match(bMsgs[1].text, /Executor meet-turn auto-submitted speech/);
 
     const calls = fs.readFileSync(logFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
     assert.equal(calls.length, 2, 'fake Codex ran twice');

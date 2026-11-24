@@ -1,10 +1,10 @@
-// Plan §13.1 #26 (仿真): a disclosure argv outside the allowlist.
+// Plan §13.1 #26 (simulation): a disclosure argv outside the allowlist.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createSim, IR_SEATS, runToSummary, FAKE_CODEX } from '../../sim/driver.mjs';
 import { createScriptedSeat } from '../../sim/scripted-seat.mjs';
 
-test('#26 披露 argv 不在白名单：房间直接拒绝（disclose_denied by room NOT_IN_ALLOWLIST），用户也批准不了', async () => {
+test('#26 Disclosure argv not in allowlist: room immediately denies (disclose_denied by room NOT_IN_ALLOWLIST), cannot be approved by user', async () => {
   const sim = await createSim({ preset: 'implement-review', seats: IR_SEATS });
   await sim.check(async () => {
     await runToSummary(sim);
@@ -12,10 +12,10 @@ test('#26 披露 argv 不在白名单：房间直接拒绝（disclose_denied by 
       seatId: 'A',
       script: [
         { wait: {} },
-        { disclose: { argv: ['node', '-e', 'require("fs").rmSync(".", {recursive:true})'], reason: '跑一段脚本' } },
-        { disclose: { argv: ['git', 'push', 'origin'], reason: '前缀相同但不在白名单' } },
-        { disclose: { argv: ['git', 'diff', '--stat'], reason: '白名单前缀 git diff 之内' } },
-        (s, sm) => ({ submit: `<<ROOM:DISCLOSE argv=["powershell","-c","dir"]>> 文本标记形的越界请求\n<<ROOM:VERDICT reject artifact=${sm.latestManifest('B')}>> 证据不足` }),
+        { disclose: { argv: ['node', '-e', 'require("fs").rmSync(".", {recursive:true})'], reason: 'Run a script' } },
+        { disclose: { argv: ['git', 'push', 'origin'], reason: 'Same binary but not allowlisted' } },
+        { disclose: { argv: ['git', 'diff', '--stat'], reason: 'Matches git diff allowlist prefix' } },
+        (s, sm) => ({ submit: `<<ROOM:DISCLOSE argv=["powershell","-c","dir"]>> Inline marker request outside allowlist\n<<ROOM:VERDICT reject artifact=${sm.latestManifest('B')}>> Insufficient evidence` }),
       ],
     });
     await sim.run([A]);

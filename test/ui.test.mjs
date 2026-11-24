@@ -1,5 +1,5 @@
-// ui/: static checks on app.js (token handling, admin command names, syntax), the pure RoomUI model
-// over the fixture, and the mock server (static files, API, loopback Host/Origin check).
+// ui/: static checks on app.js (token handling, admin command names, zero innerHTML, zero CJK, syntax),
+// the pure RoomUI model over the fixture, and the mock server (static files, API, loopback Host/Origin check).
 // No browser, no temp files, no child process except `node --check` through lib/spawn.mjs.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -19,24 +19,21 @@ const htmlSrc = fs.readFileSync(path.join(UI, 'index.html'), 'utf8');
 const interfacesSrc = fs.readFileSync(path.join(ROOT, 'docs', 'INTERFACES.md'), 'utf8');
 const fixture = loadFixture();
 
-// P-1 admin commands (lib/admin.mjs / room.mjs at commit dc8a7b5, which INTERFACES lists as existing
-// code whose contract must not break). Hard-coded so a concurrent edit elsewhere cannot widen the set.
+// P-1 admin commands (lib/admin.mjs / room.mjs baseline contract).
 const P1_ADMIN = ['init', 'add-seat', 'set-audit', 'task', 'start', 'cancel', 'skip', 'wake', 'close', 'log', 'show'];
 
 // Admin command names INTERFACES itself names: every `admin <name>` / `room admin <name>` code span,
-// plus the backticked words on the "epoch 递增" line of section 3 (interrupt / reassign / reverse).
+// plus the backticked words on the "epoch bump" line of section 3 (interrupt / reassign / reverse).
 function interfacesAdminCommands(src) {
   const names = new Set();
   for (const m of src.matchAll(/`(?:room )?admin ([a-z][a-z-]*)/g)) names.add(m[1]);
-  const epochLine = src.split('\n').find((l) => l.includes('epoch 递增'));
-  assert.ok(epochLine, 'INTERFACES section 3 has the epoch line');
+  const epochLine = src.split('\n').find((l) => l.includes('epoch bump'));
+  assert.ok(epochLine, 'INTERFACES section 3 has the epoch bump line');
   for (const m of epochLine.matchAll(/`([a-z][a-z-]*)`/g)) names.add(m[1]);
   return names;
 }
 // Admin commands the room service itself executes: the ADMIN_COMMANDS literal in lib/service.mjs,
-// read as text (not imported) so this file stays free of the service's module graph. INTERFACES does
-// not yet name approve-disclose / deny-disclose / accept-stale as `admin` commands although the service
-// and the CLI implement them; a UI command must be in one of the two sets, and nothing else is sent.
+// read as text (not imported) so this file stays free of the service's module graph.
 function serviceAdminCommands() {
   const src = fs.readFileSync(path.join(ROOT, 'lib', 'service.mjs'), 'utf8');
   const m = /export const ADMIN_COMMANDS = Object\.freeze\(\[([\s\S]*?)\]\)/.exec(src);
@@ -47,8 +44,7 @@ const SERVICE_ADMIN = serviceAdminCommands();
 const CONTRACT_ADMIN = new Set([...P1_ADMIN, ...interfacesAdminCommands(interfacesSrc), ...SERVICE_ADMIN]);
 
 function loadRoomUI() {
-  // Same realm as the test (so deepStrictEqual compares prototypes fairly), but with its own
-  // `globalThis` binding so app.js does not touch the test process's global object.
+  // Same realm as the test (so deepStrictEqual compares prototypes fairly), with its own `globalThis`.
   const sandbox = {};
   const fn = new vm.Script(`(function (globalThis) {\n${appSrc}\n})`, { filename: 'app.js' }).runInThisContext();
   fn(sandbox);
@@ -79,10 +75,16 @@ function req(port, { method = 'GET', pathname = '/', headers = {}, body } = {}) 
 // ------------------------------------------------------------------------------------------------
 // app.js: syntax and static analysis
 // ------------------------------------------------------------------------------------------------
-test('node --check ui/app.js passes', async () => {
+test('node --check ui/app.js passes; zero innerHTML and zero CJK in UI room assets', async () => {
   const r = await spawnClean(process.execPath, ['--check', APP_JS], { timeoutMs: 30_000 });
   assert.equal(r.spawnError, null, r.spawnError || '');
   assert.equal(r.code, 0, `node --check failed:\n${r.stderr}`);
+  const codeOnly = appSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  assert.doesNotMatch(codeOnly, /\binnerHTML\b|\bouterHTML\b|insertAdjacentHTML/, 'zero innerHTML in app.js');
+  for (const rel of ['index.html', 'app.js', 'app.css', 'rt-chat.css', 'mock-server.mjs', 'fixtures/state.json']) {
+    const txt = fs.readFileSync(path.join(UI, rel), 'utf8');
+    assert.doesNotMatch(txt, /[\u4e00-\u9fff]/, `${rel} contains no CJK characters`);
+  }
 });
 
 test('node --check ui/mock-server.mjs passes', async () => {
@@ -107,14 +109,27 @@ test('boot() scrubs #token via history.replaceState and keeps app.token across e
   const loc = { pathname: '/', hash: '#0123456789abcdef0123456789abcdef' };
   const tokenInput = { value: '' };
   const tokenState = { textContent: '', className: '' };
-  const dummyEl = () => ({
-    textContent: '', className: '', innerHTML: '', disabled: false, title: '', value: '', placeholder: '',
-    addEventListener: () => {}, append: () => {}, appendChild: () => {}, removeChild: () => {},
-    replaceWith: () => {}, querySelector: () => null, classList: { toggle: () => {} },
-    getAttribute: () => '',
-  });
+  const dummyEl = () => {
+    const children = [];
+    return {
+      textContent: '', className: '', disabled: false, title: '', value: '', placeholder: '',
+      dataset: {},
+      get firstChild() { return children[0] || null; },
+      addEventListener: () => {},
+      append: (...nodes) => { children.push(...nodes); },
+      appendChild: (c) => { children.push(c); return c; },
+      removeChild: (c) => { const i = children.indexOf(c); if (i >= 0) children.splice(i, 1); },
+      replaceWith: () => {},
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      classList: { toggle: () => {} },
+      setAttribute: () => {},
+      getAttribute: () => '',
+    };
+  };
   const doc = {
     readyState: 'complete',
+    documentElement: { lang: 'en', dataset: {}, setAttribute: () => {} },
     addEventListener: () => {},
     getElementById: (id) => {
       if (id === 'token-form') return { addEventListener: (ev, fn) => { formListeners[ev] = fn; } };
@@ -136,6 +151,7 @@ test('boot() scrubs #token via history.replaceState and keeps app.token across e
       },
     },
     window: {
+      matchMedia: () => ({ matches: false }),
       addEventListener: (ev, fn) => { winListeners[ev] = fn; },
     },
     document: doc,
@@ -151,18 +167,18 @@ test('boot() scrubs #token via history.replaceState and keeps app.token across e
   assert.equal(replaceCalls.length, 1, 'boot scrubbed the initial #token');
   assert.deepEqual(replaceCalls[0], [null, '', '/']);
   assert.equal(loc.hash, '');
-  assert.match(tokenState.textContent, /已载入/, 'token loaded into memory');
+  assert.match(tokenState.textContent, /^Loaded$/, 'token loaded into memory');
 
   // Empty hashchange (e.g. triggered after clearing fragment) must NOT wipe the in-memory token.
   winListeners.hashchange();
-  assert.match(tokenState.textContent, /已载入/, 'empty hashchange keeps app.token');
+  assert.match(tokenState.textContent, /^Loaded$/, 'empty hashchange keeps app.token');
 
   // A new non-empty #token updates app.token and scrubs the fragment again.
   loc.hash = '#fedcba9876543210fedcba9876543210';
   winListeners.hashchange();
   assert.equal(replaceCalls.length, 2, 'new #token scrubbed again');
   assert.equal(loc.hash, '');
-  assert.match(tokenState.textContent, /已载入/);
+  assert.match(tokenState.textContent, /^Loaded$/);
 
   // Submitting token-form updates app.token and ensures any fragment is scrubbed.
   loc.hash = '#stale';
@@ -171,7 +187,7 @@ test('boot() scrubs #token via history.replaceState and keeps app.token across e
   assert.equal(replaceCalls.length, 3);
   assert.equal(loc.hash, '');
   assert.equal(tokenInput.value, '');
-  assert.match(tokenState.textContent, /已载入/);
+  assert.match(tokenState.textContent, /^Loaded$/);
 });
 
 test('admin token is sent only inside the POST /api/admin body', () => {
@@ -204,9 +220,9 @@ test('admin token is sent only inside the POST /api/admin body', () => {
   // The confirm dialog shows the command body before the token is added.
   const confirmIdx = appSrc.indexOf('window.confirm(a.confirm');
   assert.ok(confirmIdx > 0 && confirmIdx < puts[0].index, 'confirm text is built before the token joins the body');
-  // The evidence export does not include the token.
+  // The evidence export does not include the word token or any credential.
   const exp = /function exportEvidence\(\)\s*\{([\s\S]*?)\n  \}/.exec(appSrc);
-  assert.ok(exp && !/token/.test(exp[1].replace(/不含令牌/g, '')), 'export payload carries no token');
+  assert.ok(exp && !/token/i.test(exp[1]), 'export payload carries no token');
 });
 
 test('every admin command name used in app.js is one INTERFACES defines', () => {
@@ -220,15 +236,14 @@ test('every admin command name used in app.js is one INTERFACES defines', () => 
   // The UI posts only to the room service's /api/admin, so every enabled action must be one it executes.
   for (const name of live) assert.ok(SERVICE_ADMIN.includes(name), `ACTIONS cmd=${name} is not executed by lib/service.mjs`);
   assert.deepEqual([...new Set(live)].sort(), [...new Set(literal)].sort(), 'static and runtime views agree');
-  // Actions with no contract command are disabled with a Chinese reason, never sent.
+  // Actions with no contract command are disabled with an English reason, never sent.
   for (const [key, a] of Object.entries(RoomUI.ACTIONS)) {
     if (a.cmd) continue;
-    assert.ok(typeof a.reason === 'string' && /[一-鿿]/.test(a.reason), `${key} has a Chinese reason`);
+    assert.ok(typeof a.reason === 'string' && a.reason.length > 10 && !/[\u4e00-\u9fff]/.test(a.reason), `${key} has an English reason`);
     assert.throws(() => RoomUI.buildCommand(key, {}), (e) => e.message === a.reason);
   }
   // The mock server accepts every command INTERFACES names and every command the UI sends, and nothing
-  // outside the contract-or-service set. (Not exact equality with the service list: the service may
-  // gain commands the UI does not use, e.g. retry, without the mock having to follow.)
+  // outside the contract-or-service set.
   for (const name of [...P1_ADMIN, ...interfacesAdminCommands(interfacesSrc), ...live]) assert.ok(ADMIN_COMMANDS.includes(name), `mock-server accepts ${name}`);
   for (const name of ADMIN_COMMANDS) assert.ok(CONTRACT_ADMIN.has(name), `mock-server accepts ${name}, which neither INTERFACES nor lib/service.mjs defines`);
 });
@@ -240,16 +255,16 @@ test('buildCommand produces the admin-queue shapes lib/admin.mjs uses', () => {
   assert.deepEqual(RoomUI.buildCommand('say', { text: 'hi' }), { cmd: 'say', text: 'hi' });
   assert.deepEqual(RoomUI.buildCommand('reconcile', { attemptId: 'att-b2', action: 'void' }), { cmd: 'reconcile', attemptId: 'att-b2', action: 'void' });
   assert.deepEqual(RoomUI.buildCommand('cancel', {}), { cmd: 'cancel' });
-  assert.throws(() => RoomUI.buildCommand('start', { order: '' }), /缺少参数 order/);
-  assert.throws(() => RoomUI.buildCommand('reconcile', { attemptId: 'x' }), /缺少参数 action/);
+  assert.throws(() => RoomUI.buildCommand('start', { order: '' }), /Missing parameter order/);
+  assert.throws(() => RoomUI.buildCommand('reconcile', { attemptId: 'x' }), /Missing parameter action/);
   for (const k of Object.keys(RoomUI.ACTIONS)) {
     const a = RoomUI.ACTIONS[k];
     if (!a.cmd) continue;
-    try { assert.ok(!('token' in RoomUI.buildCommand(k, { text: 'x', order: 'A', seatId: 'A', toSeatId: 'B', attemptId: 'a', action: 'replay', id: 'dsc-1', reason: 'r', manifestSha: 'abc' })),`${k} body has no token before send`); } catch (e) { assert.fail(`${k}: ${e.message}`); }
+    try { assert.ok(!('token' in RoomUI.buildCommand(k, { text: 'x', order: 'A', seatId: 'A', toSeatId: 'B', attemptId: 'a', action: 'replay', id: 'dsc-1', reason: 'r', manifestSha: 'abc' })), `${k} body has no token before send`); } catch (e) { assert.fail(`${k}: ${e.message}`); }
   }
 });
 
-test('index.html: every data-action is a known action, every tab has its view (plan section 10)', () => {
+test('index.html: every data-action is a known action, every tab has its view', () => {
   const actions = [...htmlSrc.matchAll(/data-action="([^"]+)"/g)].map((m) => m[1]);
   assert.ok(actions.length > 5);
   for (const a of actions) assert.ok(a === 'export-evidence' || RoomUI.ACTIONS[a], `index.html data-action=${a} has no ACTIONS entry`);
@@ -262,10 +277,11 @@ test('index.html: every data-action is a known action, every tab has its view (p
   // Regression (found in a browser render): td({class}, ...) must treat the leading object as attributes.
   if (/td\(\{ class:/.test(appSrc)) assert.match(appSrc, /function td\(\) \{\s*\n\s*var args = Array\.prototype\.slice\.call\(arguments\);\s*\n\s*var attrs = args\.length && isObj\(args\[0\]\) && !args\[0\]\.nodeType/, 'td() takes a leading attribute object');
   assert.doesNotMatch(htmlSrc, /<script>(?!<\/script>)|\son[a-z]+="/, 'no inline script or inline handlers (CSP script-src self)');
+  assert.doesNotMatch(htmlSrc, /<style>|\sstyle=/, 'no inline style in index.html');
 });
 
 // ------------------------------------------------------------------------------------------------
-// RoomUI over the fixture: every view of plan section 10 has data, and missing fields say 未知
+// RoomUI over the fixture: every view has data, and missing fields say Unknown
 // ------------------------------------------------------------------------------------------------
 test('fixture events fold into every view model', () => {
   const d = RoomUI.derive(fixture.events);
@@ -286,12 +302,12 @@ test('fixture events fold into every view model', () => {
   const obsC = RoomUI.auditObservation(seats.find((s) => s.seatId === 'C'), d);
   assert.equal(obsC.tone, 'bad');
   assert.match(obsC.text, /^tainted/);
-  assert.equal(RoomUI.auditObservation(seats.find((s) => s.seatId === 'D'), d).text, '未审计');
-  // Executor B wrote in a work attempt: reported as observed writes, not as "not observed", not tainted.
+  assert.equal(RoomUI.auditObservation(seats.find((s) => s.seatId === 'D'), d).text, 'Unaudited');
+  // Executor B wrote in a work attempt: reported as observed writes, not as "no writes observed", not tainted.
   const obsB = RoomUI.auditObservation(seats.find((s) => s.seatId === 'B'), d);
-  assert.match(obsB.text, /^观测到 1 次写/);
-  assert.doesNotMatch(obsB.text, /未观测到写操作/);
-  assert.doesNotMatch(appSrc + htmlSrc, /只读|无写操作/, 'never claims read-only, only not observed');
+  assert.match(obsB.text, /^Observed 1 write/);
+  assert.doesNotMatch(obsB.text, /No writes observed/i);
+  assert.doesNotMatch(appSrc, /read-only|zero writes|\bno writes\b(?! observed)/i, 'never claims read-only or guaranteed zero writes, only not observed');
   // unanswered items
   const st = Object.fromEntries(Object.values(d.items).map((it) => [it.itemId, RoomUI.itemStatus(it, d)]));
   assert.deepEqual(st, { i1: 'accepted', i2: 'unanswered', i3: 'unanswered' });
@@ -327,20 +343,20 @@ test('fixture events fold into every view model', () => {
   assert.equal(d.taskConfirmed.by, 'admin');
 });
 
-test('missing fields render as 未知, never as a guess', () => {
+test('missing fields render as Unknown, never as a guess', () => {
   const d = RoomUI.emptyDerived();
-  assert.equal(RoomUI.u(undefined), '未知');
-  assert.equal(RoomUI.u(null), '未知');
-  assert.equal(RoomUI.u(''), '未知');
+  assert.equal(RoomUI.u(undefined), 'Unknown');
+  assert.equal(RoomUI.u(null), 'Unknown');
+  assert.equal(RoomUI.u(''), 'Unknown');
   assert.equal(RoomUI.u(0), '0');
-  assert.equal(RoomUI.fmtTs(undefined), '未知');
-  assert.equal(RoomUI.fmtBytes(undefined), '未知');
-  assert.equal(RoomUI.fmtArgv(undefined), '未知');
-  assert.equal(RoomUI.shortSha(undefined), '未知');
-  assert.equal(RoomUI.seatAgent({ seatId: 'X' }), '未知');
-  assert.equal(RoomUI.seatForm({ seatId: 'X' }), '未知');
-  assert.equal(RoomUI.auditSource({ seatId: 'X' }), '未知');
-  assert.equal(RoomUI.auditSource({ seatId: 'X', audit: null }), '未登记');
+  assert.equal(RoomUI.fmtTs(undefined), 'Unknown');
+  assert.equal(RoomUI.fmtBytes(undefined), 'Unknown');
+  assert.equal(RoomUI.fmtArgv(undefined), 'Unknown');
+  assert.equal(RoomUI.shortSha(undefined), 'Unknown');
+  assert.equal(RoomUI.seatAgent({ seatId: 'X' }), 'Unknown');
+  assert.equal(RoomUI.seatForm({ seatId: 'X' }), 'Unknown');
+  assert.equal(RoomUI.auditSource({ seatId: 'X' }), 'Unknown');
+  assert.equal(RoomUI.auditSource({ seatId: 'X', audit: null }), 'Unregistered');
   assert.equal(RoomUI.projectedTurns({}), null);
   const empty = RoomUI.usageSummary({}, null, d);
   assert.equal(empty.paused, null, 'paused unknown without data');
@@ -362,13 +378,13 @@ test('missing fields render as 未知, never as a guess', () => {
   assert.equal(d4.quotes[0].verified, null);
   // Unknown event types and junk are ignored.
   assert.doesNotThrow(() => RoomUI.derive([null, 1, 'x', { type: 'no_such_event', seq: 3 }, { seq: 4 }]));
-  // Views use 未知 / u() for the fields INTERFACES leaves optional.
+  // Views use Unknown / u() for the fields INTERFACES leaves optional.
   assert.doesNotMatch(appSrc, /v\.annotation \|\| 'none'|confirmed\.by \|\| 'admin'/, 'no defaulted annotation / confirmer');
 });
 
 // CF-4: the service emits user_message_queued {msgSeq} (lib/service.mjs); `seq` is the event envelope.
 test('user_message_queued shows the message seq (msgSeq), not the event envelope seq', () => {
-  const d = RoomUI.derive([{ seq: 120, ts: 't', type: 'user_message_queued', msgSeq: 37, text: '请重做汇总' }]);
+  const d = RoomUI.derive([{ seq: 120, ts: 't', type: 'user_message_queued', msgSeq: 37, text: 'Please redo the summary' }]);
   assert.equal(d.userMessages[0].seq, 37, 'message seq is msgSeq');
   assert.equal(d.userMessages[0].eventSeq, 120, 'event seq kept separately');
   const entry = d.stream.find((e) => e.kind === 'user');
@@ -378,7 +394,7 @@ test('user_message_queued shows the message seq (msgSeq), not the event envelope
   const d2 = RoomUI.derive([{ seq: 121, type: 'user_message_queued', text: 'x' }]);
   assert.equal(d2.userMessages[0].seq, null);
   // The stream view labels the user message with msgSeq and shows the event number apart from it.
-  assert.match(appSrc, /badge\('用户新消息', 'user'\), badge\('seq ' \+ u\(e\.msgSeq\)\)/, 'user message badge reads msgSeq');
+  assert.match(appSrc, /badge\('User Message', 'user'\), badge\('seq ' \+ u\(e\.msgSeq\)\)/, 'user message badge reads msgSeq');
   // Fixture events carry the field name the service emits.
   for (const ev of fixture.events.filter((e) => e.type === 'user_message_queued')) assert.ok(Number.isInteger(ev.msgSeq), 'fixture user_message_queued has msgSeq');
 });
@@ -389,17 +405,16 @@ test('approve-disclose / deny-disclose / accept-stale are enabled and send what 
     const a = RoomUI.ACTIONS[k];
     assert.equal(a.cmd, k, `${k} is enabled`);
     assert.ok(SERVICE_ADMIN.includes(k), `${k} is executed by lib/service.mjs`);
-    assert.ok(typeof a.confirm === 'string' && /[一-鿿]/.test(a.confirm), `${k} asks for confirmation in Chinese`);
+    assert.ok(typeof a.confirm === 'string' && a.confirm.length > 10 && !/[\u4e00-\u9fff]/.test(a.confirm), `${k} asks for confirmation in English`);
   }
   assert.deepEqual(RoomUI.buildCommand('approve-disclose', { id: 'dsc-1' }), { cmd: 'approve-disclose', id: 'dsc-1' });
-  assert.deepEqual(RoomUI.buildCommand('deny-disclose', { id: 'dsc-1', reason: ' 范围太大 ' }), { cmd: 'deny-disclose', id: 'dsc-1', reason: '范围太大' });
+  assert.deepEqual(RoomUI.buildCommand('deny-disclose', { id: 'dsc-1', reason: ' Too broad ' }), { cmd: 'deny-disclose', id: 'dsc-1', reason: 'Too broad' });
   assert.deepEqual(RoomUI.buildCommand('accept-stale', { manifestSha: 'abc' }), { cmd: 'accept-stale', manifestSha: 'abc' });
   // Same rule as `room admin deny-disclose <id> --reason`: an empty reason is refused before sending.
-  assert.throws(() => RoomUI.buildCommand('deny-disclose', { id: 'dsc-1', reason: '   ' }), /缺少参数 reason/);
-  assert.throws(() => RoomUI.buildCommand('deny-disclose', { id: 'dsc-1' }), /缺少参数 reason/);
-  assert.throws(() => RoomUI.buildCommand('approve-disclose', {}), /缺少参数 id/);
-  assert.throws(() => RoomUI.buildCommand('accept-stale', {}), /缺少参数 manifestSha/);
-  assert.doesNotMatch(appSrc, /暂不可用/, 'no action claims the contract lacks these commands');
+  assert.throws(() => RoomUI.buildCommand('deny-disclose', { id: 'dsc-1', reason: '   ' }), /Missing parameter reason/);
+  assert.throws(() => RoomUI.buildCommand('deny-disclose', { id: 'dsc-1' }), /Missing parameter reason/);
+  assert.throws(() => RoomUI.buildCommand('approve-disclose', {}), /Missing parameter id/);
+  assert.throws(() => RoomUI.buildCommand('accept-stale', {}), /Missing parameter manifestSha/);
 });
 
 // Service-side review fixes surfaced in the UI: GOV-3 (only the resolved reviewer binds; verified),
@@ -411,7 +426,7 @@ test('fold: authorized / tainted verdicts, summary verified + absent + noArtifac
     { seq: 1, type: 'round_started', roundId: 1, order: ['A', 'B', 'C'], epoch: 0 },
     { seq: 2, type: 'verdict_recorded', seatId: 'C', attemptId: 'x1', artifactSha: sha, verdict: 'pass', annotation: 'none', annotations: ['none'], authorized: false, tainted: false, producer: 'B' },
     { seq: 3, type: 'verdict_recorded', seatId: 'A', attemptId: 'x2', artifactSha: sha, verdict: 'pass', annotation: 'accepted_stale', annotations: ['accepted_stale', 'tainted'], authorized: true, tainted: true, producer: 'B' },
-    { seq: 4, type: 'wake_pushed', seatId: 'A', attemptId: 'x2', command_ok: false, refused: 'THREAD_BUSY', detail: 'THREAD_BUSY：线程有进行中的回合，未推送；需用户唤醒' },
+    { seq: 4, type: 'wake_pushed', seatId: 'A', attemptId: 'x2', command_ok: false, refused: 'THREAD_BUSY', detail: 'THREAD_BUSY: thread has an active turn; manual wake required' },
     { seq: 5, type: 'wake_pushed', seatId: 'A', attemptId: 'x2', command_ok: true, detail: 'ok' },
     { seq: 6, type: 'work_no_artifact', seatId: 'B', attemptId: 'w1', roundId: 1, reason: 'empty', manifestSha: sha },
     { seq: 7, type: 'attempt_expired', seatId: 'C', attemptId: 'x3', hold: true },
@@ -423,20 +438,20 @@ test('fold: authorized / tainted verdicts, summary verified + absent + noArtifac
   assert.equal(RoomUI.wakesThisRound(d, 'A'), 1, 'the refused wake is not counted');
   assert.equal(RoomUI.wakesTotal(d, 'A'), 1);
   assert.equal(RoomUI.wakeRefusalsFor(d, 'A')[0].refused, 'THREAD_BUSY');
-  assert.ok(d.stream.some((e) => /需用户唤醒/.test(e.text || '')));
+  assert.ok(d.stream.some((e) => /manual wake required/.test(e.text || '')));
   assert.equal(d.noArtifact.length, 1);
   assert.ok(d.stream.some((e) => /no_artifact/.test(e.text || '')));
-  assert.ok(d.stream.some((e) => /等用户决定/.test(e.text || '')), 'a held expiry says the room waits for the user');
+  assert.ok(d.stream.some((e) => /awaiting user decision/.test(e.text || '')), 'a held expiry says the room waits for the user');
   const v = RoomUI.verifiedFor(d, sha);
   assert.deepEqual([v.verified, v.reason], [false, 'TAINTED']);
   assert.equal(RoomUI.verifiedFor(d, 'b'.repeat(64)), null);
   const sm = RoomUI.latestSummary(d);
   assert.deepEqual(sm.absent.map((x) => x.seatId), ['C']);
   assert.deepEqual(sm.noArtifact.map((x) => x.seatId), ['B']);
-  // The view text for a non-reviewer verdict and the 已验证 badge come from these fields.
-  assert.match(appSrc, /非审方意见（不计入验证）/);
+  // The view text for a non-reviewer verdict and the Verified badge come from these fields.
+  assert.match(appSrc, /Non-reviewer opinion \(excluded\)/);
   assert.match(appSrc, /v\.authorized === true/);
-  assert.match(appSrc, /已验证/);
+  assert.match(appSrc, /'Verified'/);
   // awaitingDecision -> retry (same seat), skip, reassign.
   assert.equal(RoomUI.awaitingDecision({}), null);
   assert.equal(RoomUI.awaitingDecision({ awaitingDecision: { seatId: 'C', attemptId: 'x3', phase: 'meet' } }).seatId, 'C');
@@ -450,7 +465,7 @@ test('INTERFACES section 4 event names used by the fold all exist in the contrac
   const contractEvents = new Set();
   const sec4 = interfacesSrc.slice(interfacesSrc.indexOf('## 4.'), interfacesSrc.indexOf('## 5.'));
   for (const m of sec4.matchAll(/(?:^|\s)([a-z]+(?:_[a-z]+)*) \{/gm)) contractEvents.add(m[1]);
-  const existing = /已有：`([^`]+)`/.exec(sec4);
+  const existing = /Existing:\s*`([^`]+)`/.exec(sec4);
   assert.ok(existing, 'section 4 lists the existing events');
   for (const t of existing[1].split(/\s+/)) contractEvents.add(t);
   assert.ok(contractEvents.size >= 40, `parsed ${contractEvents.size} event names`);
@@ -515,9 +530,9 @@ test('GET /api/state and /api/events?since=', async () => {
 
 test('POST /api/admin: token only in the body, contract commands only, echo without the token', async () => {
   const headers = { 'content-type': 'application/json', origin: `http://127.0.0.1:${mock.port}` };
-  const ok = await req(mock.port, { method: 'POST', pathname: '/api/admin', headers, body: { token: mock.token, cmd: 'say', text: '你好' } });
+  const ok = await req(mock.port, { method: 'POST', pathname: '/api/admin', headers, body: { token: mock.token, cmd: 'say', text: 'hello' } });
   assert.equal(ok.status, 200);
-  assert.deepEqual({ ok: ok.json.ok, cmd: ok.json.cmd, params: ok.json.params }, { ok: true, cmd: 'say', params: { text: '你好' } });
+  assert.deepEqual({ ok: ok.json.ok, cmd: ok.json.cmd, params: ok.json.params }, { ok: true, cmd: 'say', params: { text: 'hello' } });
   assert.ok(!JSON.stringify(ok.json).includes(mock.token), 'echo does not reflect the token');
   assert.ok(!JSON.stringify(mock.received).includes(mock.token), 'recorded posts drop the token');
   const inUrl = await req(mock.port, { method: 'POST', pathname: `/api/admin?token=${mock.token}`, headers, body: { token: mock.token, cmd: 'say', text: 'x' } });
@@ -537,7 +552,7 @@ test('POST /api/admin: token only in the body, contract commands only, echo with
   // Every enabled UI action round-trips through the mock.
   for (const [key, a] of Object.entries(RoomUI.ACTIONS)) {
     if (!a.cmd) continue;
-    const body = RoomUI.buildCommand(key, { text: 'x', order: 'A,B', seatId: 'A', toSeatId: 'B', attemptId: 'att-b2', action: 'replay', id: 'dsc-1', reason: '理由', manifestSha: 'abc' });
+    const body = RoomUI.buildCommand(key, { text: 'x', order: 'A,B', seatId: 'A', toSeatId: 'B', attemptId: 'att-b2', action: 'replay', id: 'dsc-1', reason: 'reason', manifestSha: 'abc' });
     body.token = mock.token;
     const r = await req(mock.port, { method: 'POST', pathname: '/api/admin', headers, body });
     assert.equal(r.status, 200, `${key} -> ${a.cmd}: ${r.text}`);
@@ -581,8 +596,8 @@ test('Host / Origin check (DNS rebinding and cross-site requests)', async () => 
   assert.match(page.text, /app\.js/);
   assert.equal((await req(p, { pathname: '/api/state', headers: nav })).status, 403, 'same-site to the API refused');
   assert.equal((await req(p, { pathname: '/app.js', headers: { ...nav, 'sec-fetch-mode': 'no-cors', 'sec-fetch-dest': 'script' } })).status, 403);
-  const http = await import('../lib/http.mjs');
+  const httpMod = await import('../lib/http.mjs');
   for (const [h, r] of [[nav, { method: 'GET', path: '/' }], [nav, { method: 'GET', path: '/api/state' }], [{ ...nav, 'sec-fetch-dest': 'iframe' }, { method: 'GET', path: '/' }], [nav, { method: 'POST', path: '/' }]]) {
-    assert.deepEqual(checkHostOrigin(h, p, r), http.checkHostOrigin(h, p, r), `mock and service gates agree: ${JSON.stringify(r)}`);
+    assert.deepEqual(checkHostOrigin(h, p, r), httpMod.checkHostOrigin(h, p, r), `mock and service gates agree: ${JSON.stringify(r)}`);
   }
 });

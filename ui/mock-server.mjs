@@ -208,7 +208,7 @@ export function createMockServer({ port = 0, fixturePath = DEFAULT_FIXTURE, fixt
     }
     if (url.pathname === '/api/admin') {
       if (req.method !== 'POST') { send(res, 405, { ok: false, error: 'METHOD' }); return; }
-      if (url.search) { send(res, 400, { ok: false, error: 'TOKEN_IN_URL', message: 'admin 令牌只能放在 POST 正文里，URL 不得带查询串' }); return; }
+      if (url.search) { send(res, 400, { ok: false, error: 'TOKEN_IN_URL', message: 'Admin token must be sent in the POST JSON body, never in the URL query string' }); return; }
       const ctype = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
       if (ctype !== 'application/json') { send(res, 415, { ok: false, error: 'CONTENT_TYPE' }); return; }
       let body;
@@ -251,10 +251,10 @@ function isMain() {
 if (isMain()) {
   const args = parseArgs(process.argv.slice(2));
   const port = args.port === undefined ? 0 : Number(args.port);
-  if (!Number.isInteger(port) || port < 0 || port > 65535) { process.stderr.write('ERROR --port 必须是 0-65535 的整数\n'); process.exit(9); }
+  if (!Number.isInteger(port) || port < 0 || port > 65535) { process.stderr.write('ERROR --port must be an integer between 0 and 65535\n'); process.exit(9); }
   const m = await createMockServer({ port, fixturePath: args.fixture ? path.resolve(String(args.fixture)) : DEFAULT_FIXTURE, token: typeof args.token === 'string' ? args.token : undefined });
   out(`MOCK_UI ${m.url}#${m.token}`);
-  out('这是界面的模拟服务：数据来自夹具，动作只回显、不执行。Ctrl+C 退出。');
+  out('Mock server for the Room UI: data comes from the fixture; actions echo only and do not execute. Press Ctrl+C to exit.');
   const stop = () => { m.close().then(() => process.exit(0)); };
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);

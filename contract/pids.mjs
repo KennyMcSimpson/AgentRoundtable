@@ -8,7 +8,7 @@
 // apart from one the room made.
 //
 // What this does NOT observe: attach / inject / OpenProcess on a running agent, and who terminated
-// a process that disappeared. Those need ETW, which the plan leaves to P3. Wording: "未观测到".
+// a process that disappeared. Those need ETW, which the plan leaves to P3. Wording: "not observed".
 //
 //   node contract/pids.mjs snapshot [--out <file>]
 //   node contract/pids.mjs compare <before.json> <after.json> [--service-pid <pid>] [--room <roomDir>] [--room-pids 1,2,3]
@@ -84,7 +84,7 @@ async function must(file, args) {
 export const POWERSHELL_UTF8_PREFIX = '[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false; ';
 
 export async function powershellJson(script) {
-  const txt = (await must('powershell', ['-NoProfile', '-NonInteractive', '-Command', POWERSHELL_UTF8_PREFIX + script])).replace(/^﻿/, '').trim();
+  const txt = (await must('powershell', ['-NoProfile', '-NonInteractive', '-Command', POWERSHELL_UTF8_PREFIX + script])).replace(/^\uFEFF/, '').trim();
   if (!txt) return [];
   const parsed = JSON.parse(txt);
   return Array.isArray(parsed) ? parsed : [parsed];
@@ -216,29 +216,29 @@ export async function compareReport({ before, after, servicePid = null, roomDir 
   const nAgents = after.processes.filter((p) => AGENT_PATTERN.test(p.name)).length;
   const pids = [...new Set([...(servicePid ? [servicePid] : []), ...roomPids])];
   if (d.agentAdded.length === 0 && d.agentRemoved.length === 0) {
-    lines.push(`PASS pids(agents): codex|claude 进程集合会前会后一致（${nAgents} 个），在 PID 集合比对下未观测到房间启动或终止任何 agent 进程`);
+    lines.push(`PASS pids(agents): codex|claude process set unchanged before vs after (${nAgents} processes); room-initiated start or termination of any agent process was not observed under PID-set comparison`);
   } else {
     let rows = parents || after.parents || null;
-    if (!rows && d.agentAdded.length) { try { rows = await listProcessParents(); } catch (e) { lines.push(`INFO pids(ancestry): 无法读取父进程表（${e.message}）`); } }
+    if (!rows && d.agentAdded.length) { try { rows = await listProcessParents(); } catch (e) { lines.push(`INFO pids(ancestry): could not read parent process table (${e.message})`); } }
     const j = judgeAgentDiff(d, rows, pids);
     if (j.ok) {
-      lines.push(`PASS pids(agents): agent 进程集合有 ${j.foreign.length} 个新增 [${fmt(j.foreign)}]、0 个消失；在 PID 集合 + 父进程链比对下未观测到以房间进程（${pids.length} 个 pid）为祖先的 agent 进程，新增来自本机其他进程`);
+      lines.push(`PASS pids(agents): agent process set had ${j.foreign.length} added [${fmt(j.foreign)}], 0 removed; agent processes with a room process (${pids.length} pids) as ancestor were not observed under PID-set + parent-chain comparison (additions came from other processes on the machine)`);
     } else {
       ok = false;
-      lines.push(`FAIL pids(agents): 在 PID 集合比对下观测到 agent 进程集合变化 added=[${fmt(d.agentAdded)}] removed=[${fmt(d.agentRemoved)}]`);
-      if (j.attributed.length) lines.push(`INFO pids(ancestry): 以房间进程为祖先的新增 agent 进程：${j.attributed.map((p) => `${p.name}(${p.pid})<-${p.ancestor}`).join(', ')}`);
-      if (j.unknown.length) lines.push(`INFO pids(ancestry): 父进程表里找不到、无法归因的新增进程：${fmt(j.unknown)}`);
-      if (j.foreign.length) lines.push(`INFO pids(ancestry): 父进程链不含房间进程的新增进程：${fmt(j.foreign)}`);
-      if (j.removed.length) lines.push('INFO pids(ancestry): 消失的 agent 进程无法在本方法下归因（终止者需 ETW，P3）；若基线窗口里同样有 agent 进程起落，多半是本机其他会话，需人工判读');
+      lines.push(`FAIL pids(agents): agent process set changes were observed under PID-set comparison: added=[${fmt(d.agentAdded)}] removed=[${fmt(d.agentRemoved)}]`);
+      if (j.attributed.length) lines.push(`INFO pids(ancestry): new agent processes with a room process as ancestor: ${j.attributed.map((p) => `${p.name}(${p.pid})<-${p.ancestor}`).join(', ')}`);
+      if (j.unknown.length) lines.push(`INFO pids(ancestry): new processes missing from the parent table (cannot be attributed): ${fmt(j.unknown)}`);
+      if (j.foreign.length) lines.push(`INFO pids(ancestry): new processes without a room process in their parent chain: ${fmt(j.foreign)}`);
+      if (j.removed.length) lines.push('INFO pids(ancestry): disappeared agent processes cannot be attributed under this method (identifying the terminator requires ETW in P3); if agent processes also came and went during the baseline window, they are likely other local sessions and require manual review');
     }
   }
-  if (ambient) lines.push(`INFO pids(baseline): 基线窗口（房间已停止、同时长）内 agent 进程新增 ${ambient.agentAdded.length}、消失 ${ambient.agentRemoved.length}，作为本机环境噪声参考`);
+  if (ambient) lines.push(`INFO pids(baseline): during the baseline window (room stopped, same duration), ${ambient.agentAdded.length} agent processes were added and ${ambient.agentRemoved.length} removed (ambient machine noise reference)`);
   const nodeAdded = d.added.filter((p) => !AGENT_PATTERN.test(p.name));
   const nodeRemoved = d.removed.filter((p) => !AGENT_PATTERN.test(p.name));
-  lines.push(`INFO pids(node): added=[${fmt(nodeAdded)}] removed=[${fmt(nodeRemoved)}]（node 进程含房间自己的子进程与本机其他会话，仅记录）`);
+  lines.push(`INFO pids(node): added=[${fmt(nodeAdded)}] removed=[${fmt(nodeRemoved)}] (node processes include the room's own children and other local sessions; recorded for reference only)`);
   if (servicePid) {
-    if (pidAlive(servicePid)) { ok = false; lines.push(`FAIL pids(service): 房间服务 pid ${servicePid} 在 close 后仍存活`); }
-    else lines.push(`PASS pids(service): 房间服务 pid ${servicePid} 在 close 后已退出`);
+    if (pidAlive(servicePid)) { ok = false; lines.push(`FAIL pids(service): room service pid ${servicePid} is still alive after close`); }
+    else lines.push(`PASS pids(service): room service pid ${servicePid} exited after close`);
   }
   if (roomDir) {
     const lock = path.join(roomDir, 'service.lock');
@@ -246,9 +246,9 @@ export async function compareReport({ before, after, servicePid = null, roomDir 
     let live = [];
     let probeError = null;
     try { live = await findRoomServiceProcesses({ roomDir }); } catch (e) { probeError = e; }
-    if (probeError) { ok = false; lines.push(`FAIL pids(service-cmdline): 无法枚举命令行（${probeError.message}）`); }
-    else if (live.length || lockLive) { ok = false; lines.push(`FAIL pids(service-cmdline): close 后仍有房间服务进程 [${live.map((p) => p.pid).join(',') || '-'}] lock=${lockLive}`); }
-    else lines.push(`PASS pids(service-cmdline): 在命令行枚举下未观测到 close 后仍为 ${roomDir} 运行的 room.mjs serve 进程，service.lock 已移除`);
+    if (probeError) { ok = false; lines.push(`FAIL pids(service-cmdline): could not enumerate command lines (${probeError.message})`); }
+    else if (live.length || lockLive) { ok = false; lines.push(`FAIL pids(service-cmdline): room service processes remain after close [${live.map((p) => p.pid).join(',') || '-'}] lock=${lockLive}`); }
+    else lines.push(`PASS pids(service-cmdline): live room.mjs serve processes for ${roomDir} after close were not observed under command-line enumeration, and service.lock was removed`);
   }
   return { lines, ok, diff: d };
 }
@@ -265,14 +265,14 @@ export async function main(argv, { out = (l) => process.stdout.write(`${l}\n`) }
       const guard = createGuard({ allowed: [dir], logPath: path.join(dir, 'contract-write-log.jsonl'), who: 'contract' });
       guard.mkdir(dir);
       guard.writeFile(abs, text);
-      out(`INFO pids(snapshot): ${snap.processes.length} 个匹配 ${snap.pattern} 的进程`);
+      out(`INFO pids(snapshot): ${snap.processes.length} processes matching ${snap.pattern}`);
       out(`RAW ${abs}`);
     } else out(text);
     return 0;
   }
   if (sub === 'compare') {
     const [bf, af] = [args._[1], args._[2]];
-    if (!bf || !af) { out('FAIL pids: 用法 pids.mjs compare <before.json> <after.json> [--service-pid <pid>] [--room <roomDir>] [--room-pids 1,2]'); return 1; }
+    if (!bf || !af) { out('FAIL pids: usage: pids.mjs compare <before.json> <after.json> [--service-pid <pid>] [--room <roomDir>] [--room-pids 1,2]'); return 1; }
     const before = JSON.parse(fs.readFileSync(bf, 'utf8'));
     const after = JSON.parse(fs.readFileSync(af, 'utf8'));
     const rep = await compareReport({ before, after, servicePid: args.servicePid, roomDir: args.room ? path.resolve(args.room) : null, roomPids: args.roomPids });
@@ -283,10 +283,10 @@ export async function main(argv, { out = (l) => process.stdout.write(`${l}\n`) }
   if (sub === 'services') {
     const live = await findRoomServiceProcesses({ roomDir: args.room ? path.resolve(args.room) : null });
     for (const p of live) out(`INFO pids(services): ${p.pid} ${p.cmd}`);
-    out(`INFO pids(services): ${live.length} 个 room.mjs serve 进程`);
+    out(`INFO pids(services): ${live.length} room.mjs serve processes`);
     return 0;
   }
-  out('FAIL pids: 用法 pids.mjs snapshot [--out <file>] | compare <before.json> <after.json> [--service-pid <pid>] [--room <roomDir>] | services [--room <roomDir>]');
+  out('FAIL pids: usage: pids.mjs snapshot [--out <file>] | compare <before.json> <after.json> [--service-pid <pid>] [--room <roomDir>] | services [--room <roomDir>]');
   return 1;
 }
 

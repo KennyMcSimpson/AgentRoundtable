@@ -1,4 +1,4 @@
-// Plan §13.1 #8c (仿真): a third Work seat with maxWorkConcurrent=2. Its `room wait` (the real seat
+// Plan §13.1 #8c (simulation): a third Work seat with maxWorkConcurrent=2. Its `room wait` (the real seat
 // command, in-process, --once) and the scripted wait both see no turn until one of the first two
 // Work attempts reaches a terminal state.
 import { test } from 'node:test';
@@ -7,7 +7,7 @@ import { createSim, attemptOutcomes } from '../../sim/driver.mjs';
 import { createScriptedSeat } from '../../sim/scripted-seat.mjs';
 import { cmdWait } from '../../lib/seat.mjs';
 
-test('#8c 第 3 个 Work 席位：它的 wait 在前两个之一终态前不返回', async () => {
+test('#8c Third Work seat: its wait does not return a turn until one of the first two finishes', async () => {
   const sim = await createSim({
     preset: 'implement-review', init: { 'max-work': 2 },
     seats: [
@@ -18,7 +18,7 @@ test('#8c 第 3 个 Work 席位：它的 wait 在前两个之一终态前不返�
     ],
   });
   await sim.check(async () => {
-    await sim.admin({ cmd: 'task', text: '三个执行席位并发' });
+    await sim.admin({ cmd: 'task', text: 'Three concurrent executor seats' });
     await sim.admin({ cmd: 'start' });
     await sim.tick(2);
     assert.equal(sim.state().phase, 'work');
@@ -29,7 +29,7 @@ test('#8c 第 3 个 Work 席位：它的 wait 在前两个之一终态前不返�
 
     const work = (id, holdTicks) => createScriptedSeat({
       seatId: id,
-      script: [{ wait: {} }, { ticks: holdTicks }, { artifacts: { paths: [`${id.toLowerCase()}.txt`] } }, { submit: `${id} 完成` }],
+      script: [{ wait: {} }, { ticks: holdTicks }, { artifacts: { paths: [`${id.toLowerCase()}.txt`] } }, { submit: `${id} done` }],
     });
     const B = work('B', 3);
     const C = work('C', 6);

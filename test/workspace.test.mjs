@@ -28,7 +28,7 @@ function tempRoot() {
 function rmrf(dir) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } }
 // Measured on Node v24.11.1 / Windows 11: fs.rmSync({recursive:true}) on a path that itself contains
 // non-ASCII characters returns without error and removes nothing. fs.promises.rm does remove it, so
-// tests that delete a Chinese-named directory use this and assert it is gone.
+// tests that delete a non-ASCII directory use this and assert it is gone.
 async function rmTree(dir) {
   await fs.promises.rm(dir, { recursive: true, force: true });
   assert.equal(fs.existsSync(dir), false, `failed to remove ${dir}`);
@@ -40,12 +40,12 @@ function write(root, rel, content) {
   return abs;
 }
 
-// A seat working directory with Chinese characters and spaces in its path, a fake .git, an outbox
+// A seat working directory with non-ASCII UTF-8 characters and spaces in its path, a fake .git, an outbox
 // and node_modules (all of which must be excluded by default).
 function makeSeatDir(root) {
-  const cwd = path.join(root, '席位 工作目录 A');
+  const cwd = path.join(root, 'café workspace A');
   write(cwd, 'src/app.mjs', 'export const a = 1;\n');
-  write(cwd, 'src/中文 文件.txt', '你好，世界\n');
+  write(cwd, 'src/café file.txt', 'naïve résumé\n');
   write(cwd, 'README.md', '# demo\n');
   write(cwd, 'build/out.log', 'log\n');
   write(cwd, '.git/index', 'fake-index');
@@ -107,11 +107,11 @@ test('canonicalJson sorts keys recursively; manifestSha256 ignores sha256 and co
 test('hashFile streams sha256 and counts bytes; toRel uses forward slashes', async () => {
   const root = tempRoot();
   try {
-    const abs = write(root, 'd/中文.txt', '你好');
+    const abs = write(root, 'd/café.txt', 'naïve');
     const r = await hashFile(abs);
-    assert.equal(r.sha256, sha('你好'));
-    assert.equal(r.bytes, Buffer.byteLength('你好'));
-    assert.equal(toRel(root, abs), 'd/中文.txt');
+    assert.equal(r.sha256, sha('naïve'));
+    assert.equal(r.bytes, Buffer.byteLength('naïve'));
+    assert.equal(toRel(root, abs), 'd/café.txt');
     await assert.rejects(hashFile(path.join(root, 'nope')), (e) => e.code === 'ENOENT');
   } finally { rmrf(root); }
 });
@@ -121,7 +121,7 @@ test('collectFiles walks read-only, sorts, applies default and custom excludes, 
   try {
     const cwd = makeSeatDir(root);
     const r = collectFiles({ cwd, paths: ['.'], exclude: ['*.log'] });
-    assert.deepEqual(r.files.map((f) => f.path), ['README.md', 'src/app.mjs', 'src/中文 文件.txt']);
+    assert.deepEqual(r.files.map((f) => f.path), ['README.md', 'src/app.mjs', 'src/café file.txt']);
     const ex = Object.fromEntries(r.excluded.map((e) => [e.path, e.reason]));
     assert.equal(ex['.git/'], 'default');
     assert.equal(ex['.room-outbox/'], 'default');
@@ -131,7 +131,7 @@ test('collectFiles walks read-only, sorts, applies default and custom excludes, 
     assert.deepEqual(DEFAULT_EXCLUDED_DIRS, ['.room-outbox', '.git', 'node_modules']);
     // a single file and a sub directory, overlapping declarations collapse
     const r2 = collectFiles({ cwd, paths: ['src', 'src/app.mjs', 'README.md'] });
-    assert.deepEqual(r2.files.map((f) => f.path), ['README.md', 'src/app.mjs', 'src/中文 文件.txt']);
+    assert.deepEqual(r2.files.map((f) => f.path), ['README.md', 'src/app.mjs', 'src/café file.txt']);
     assert.throws(() => collectFiles({ cwd, paths: ['..'] }), (e) => e.code === 'PATH_OUTSIDE_CWD');
     assert.throws(() => collectFiles({ cwd, paths: ['missing-dir'] }), (e) => e.code === 'PATH_MISSING');
     const r3 = collectFiles({ cwd, paths: ['missing-dir'], missingOk: true });
@@ -158,7 +158,7 @@ test('collectFiles does not follow symlinks (recorded as excluded)', async (t) =
 test('collectFiles/snapshot never read through a junction in an intermediate component (W5, non-ASCII cwd)', async (t) => {
   const root = tempRoot();
   try {
-    const cwd = path.join(root, '席位 cwd 中文');
+    const cwd = path.join(root, 'café seat cwd');
     write(cwd, 'ok.txt', 'inside');
     write(root, 'outside/secret.txt', 'outside-the-cwd');
     try { fs.symlinkSync(path.join(root, 'outside'), path.join(cwd, 'j'), 'junction'); } catch (e) { t.skip(`cannot create junction here: ${e.code}`); return; }
@@ -243,7 +243,7 @@ test('snapshot refuses manifest entries under .git or the metadata dir, and remo
 test('checkCommand / runInSnapshot report a .cmd shim and an unknown command explicitly (W6)', { skip: !WIN }, async () => {
   const root = tempRoot();
   try {
-    const bin = path.join(root, 'bin 目录');
+    const bin = path.join(root, 'café bin');
     write(bin, 'fooshim.cmd', '@echo hi\r\n');
     write(bin, 'barshim.bat', '@echo hi\r\n');
     const c1 = checkCommand('fooshim', { env: { PATH: bin } });
@@ -300,14 +300,14 @@ test('snapshotArgProblem / runInSnapshot refuse arguments pointing outside the s
     const dir = path.join(root, 'snap');
     fs.mkdirSync(dir, { recursive: true });
     const spawn = fakeSpawn();
-    await assert.rejects(runInSnapshot({ snapshotDir: dir, argv: ['git', 'diff', '--output=../leak.txt'], spawn }), (e) => e instanceof WorkspaceError && e.code === 'ARG_NOT_ALLOWED' && /参数不被允许/.test(e.message));
+    await assert.rejects(runInSnapshot({ snapshotDir: dir, argv: ['git', 'diff', '--output=../leak.txt'], spawn }), (e) => e instanceof WorkspaceError && e.code === 'ARG_NOT_ALLOWED' && /Argument not allowed/.test(e.message));
     assert.equal(spawn.calls.length, 0, 'nothing spawned');
   } finally { rmrf(root); }
 });
 
 // ---------- declareArtifacts ----------
 
-test('declareArtifacts (#31 non-git dir, Chinese + spaces): manifest shape, hashes, excludes, identity', async () => {
+test('declareArtifacts (#31 non-git dir, non-ASCII + spaces): manifest shape, hashes, excludes, identity', async () => {
   const root = tempRoot();
   try {
     const cwd = makeSeatDir(root);
@@ -317,10 +317,10 @@ test('declareArtifacts (#31 non-git dir, Chinese + spaces): manifest shape, hash
     assert.equal(m.baseline, 'none');
     assert.deepEqual(m.declaredPaths, ['.']);
     assert.deepEqual(m.excludePatterns, ['build/']);
-    assert.deepEqual(m.files.map((f) => f.path), ['README.md', 'src/app.mjs', 'src/中文 文件.txt']);
+    assert.deepEqual(m.files.map((f) => f.path), ['README.md', 'src/app.mjs', 'src/café file.txt']);
     assert.equal(m.files[1].sha256, sha('export const a = 1;\n'));
-    assert.equal(m.files[2].sha256, sha('你好，世界\n'));
-    assert.equal(m.files[2].bytes, Buffer.byteLength('你好，世界\n'));
+    assert.equal(m.files[2].sha256, sha('naïve résumé\n'));
+    assert.equal(m.files[2].bytes, Buffer.byteLength('naïve résumé\n'));
     assert.equal(m.bytes, m.files.reduce((n, f) => n + f.bytes, 0));
     assert.equal(m.fileCount, 3);
     assert.deepEqual(m.deleted, []);
@@ -388,7 +388,7 @@ test('declareArtifacts with a manifest baseline: added / modified / unchanged / 
     const m = await declareArtifacts({ cwd, paths: ['.'], exclude: ['build/'], baseline: base });
     assert.equal(m.baseline, base.sha256);
     const st = Object.fromEntries(m.files.map((f) => [f.path, f.status]));
-    assert.deepEqual(st, { 'src/app.mjs': 'modified', 'src/new.mjs': 'added', 'src/中文 文件.txt': 'unchanged' });
+    assert.deepEqual(st, { 'src/app.mjs': 'modified', 'src/new.mjs': 'added', 'src/café file.txt': 'unchanged' });
     assert.deepEqual(m.deleted, ['README.md']);
     assert.deepEqual(m.summary, { added: 1, modified: 1, unchanged: 1, deleted: 1 });
     assert.equal(m.sha256, manifestSha256(m));
@@ -426,7 +426,7 @@ test('recompute (#16a): unchanged tree is not stale; edits, additions and deleti
     const gone = await recompute(m, cwd);
     assert.equal(gone.stale, true);
     assert.ok(gone.changed.every((c) => c.to === null));
-    assert.deepEqual(gone.changed.map((c) => c.path), ['README.md', 'src/app.mjs', 'src/中文 文件.txt']);
+    assert.deepEqual(gone.changed.map((c) => c.path), ['README.md', 'src/app.mjs', 'src/café file.txt']);
     await assert.rejects(recompute({}, cwd), (e) => e.code === 'BAD_MANIFEST');
   } finally { rmrf(root); }
 });
@@ -451,7 +451,7 @@ test('snapshot copies with pre/post hashes, isolates git, writes only inside des
   try {
     const cwd = makeSeatDir(root);
     const m = await declareArtifacts({ cwd, paths: ['.'], exclude: ['build/'], seatId: 'A' });
-    const dest = path.join(root, '快照 目录', m.sha256);
+    const dest = path.join(root, 'café snap', m.sha256);
     const spawn = fakeSpawn({ code: 0 });
     const gitExe = path.join(root, 'fake-git.exe');
     const r = await snapshot(m, cwd, dest, { spawn, gitExe });
@@ -533,7 +533,7 @@ test('snapshot detects a source changed or removed after declaration (stale) and
     assert.equal(r.changed[0].to, null);
     assert.equal(r.changed[1].to, sha('edited after freeze\n'));
     assert.equal(r.copyTorn, false);
-    assert.deepEqual(r.copied.map((c) => c.path), ['src/app.mjs', 'src/中文 文件.txt']);
+    assert.deepEqual(r.copied.map((c) => c.path), ['src/app.mjs', 'src/café file.txt']);
 
     // Torn copy: a guard whose copyFile writes something else than the source.
     const dest2 = path.join(root, 'snap-torn');
@@ -599,7 +599,7 @@ test('snapshotEnv: TEMP/TMP in the snapshot, HOME in a room-owned empty dir, git
 test('runInSnapshot passes the snapshot env to spawn and hashes the raw output', async () => {
   const root = tempRoot();
   try {
-    const dir = path.join(root, '快照 目录');
+    const dir = path.join(root, 'café snap');
     fs.mkdirSync(dir, { recursive: true });
     const spawn = fakeSpawn({ code: 2, stdout: 'OUT', stderr: 'ERR' });
     const r = await runInSnapshot({ snapshotDir: dir, argv: [NODE, '-v'], extraEnv: { ROOM_X: '1' }, timeoutMs: 1234, maxOutputBytes: 99, spawn });
@@ -662,10 +662,10 @@ test('runInSnapshot validates input and writes raw output to private/ only throu
   } finally { rmrf(root); }
 });
 
-test('runInSnapshot (real spawn): the child really sees HOME/TEMP in the snapshot and a Chinese cwd', async () => {
+test('runInSnapshot (real spawn): the child really sees HOME/TEMP in the snapshot and a non-ASCII cwd', async () => {
   const root = tempRoot();
   try {
-    const dir = path.join(root, '快照 real');
+    const dir = path.join(root, 'café snap real');
     fs.mkdirSync(dir, { recursive: true });
     const r = await runInSnapshot({ snapshotDir: dir, argv: [NODE, '-e', 'console.log(JSON.stringify({cwd:process.cwd(),HOME:process.env.HOME,USERPROFILE:process.env.USERPROFILE,TEMP:process.env.TEMP,TMP:process.env.TMP,C:process.env.GIT_CEILING_DIRECTORIES,tmpdir:require("os").tmpdir(),home:require("os").homedir()}))'] });
     assert.equal(r.code, 0, r.stderr);
@@ -691,9 +691,9 @@ test('real git (#50): snapshot repo is independent; ceiling blocks upward discov
     // an outer repository that contains everything, standing in for "the seat's real repo above"
     const outer = await spawnClean(GIT, ['init', '-q'], { cwd: root, env: snapshotEnv(root) });
     assert.equal(outer.code, 0, outer.stderr);
-    const cwd = path.join(root, '席位 工作目录 A');
+    const cwd = path.join(root, 'café workspace A');
     write(cwd, 'src/app.mjs', 'export const a = 1;\n');
-    write(cwd, 'src/中文 文件.txt', '你好\n');
+    write(cwd, 'src/café file.txt', 'naïve\n');
     const seatGit = await spawnClean(GIT, ['init', '-q'], { cwd, env: snapshotEnv(cwd) });
     assert.equal(seatGit.code, 0, seatGit.stderr);
     const indexBefore = fs.existsSync(path.join(cwd, '.git', 'index')) ? fs.statSync(path.join(cwd, '.git', 'index')).mtimeMs : null;
@@ -748,15 +748,15 @@ test('real git (NI-1): a worktree seat — .git pointer excluded, real repo conf
     const id = { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@x', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@x', GIT_CONFIG_NOSYSTEM: '1', HOME: root, USERPROFILE: root };
     const repo = path.join(root, 'repo');
     write(repo, 'a.txt', 'a\n');
-    for (const args of [['init', '-q'], ['add', '-A'], ['commit', '-q', '-m', 'c'], ['worktree', 'add', '-q', path.join(root, '席位 wt'), '-b', 'wt']]) {
+    for (const args of [['init', '-q'], ['add', '-A'], ['commit', '-q', '-m', 'c'], ['worktree', 'add', '-q', path.join(root, 'café wt'), '-b', 'wt']]) {
       const r = await spawnClean(GIT, args, { cwd: repo, env: id });
       assert.equal(r.code, 0, `${args.join(' ')}: ${r.stderr}`);
     }
-    const wt = path.join(root, '席位 wt');
+    const wt = path.join(root, 'café wt');
     assert.ok(fs.statSync(path.join(wt, '.git')).isFile(), 'worktree .git is a pointer file');
     write(wt, 'b.txt', 'b\n');
     const configPath = path.join(repo, '.git', 'config');
-    const wtIndex = path.join(repo, '.git', 'worktrees', '席位 wt', 'index');
+    const wtIndex = path.join(repo, '.git', 'worktrees', 'café wt', 'index');
     const wtIndexPath = fs.existsSync(wtIndex) ? wtIndex : path.join(repo, '.git', 'worktrees', fs.readdirSync(path.join(repo, '.git', 'worktrees'))[0], 'index');
     const mt = () => [fs.statSync(configPath).mtimeMs, fs.readFileSync(configPath, 'utf8'), fs.statSync(wtIndexPath).mtimeMs];
     const before = mt();
@@ -783,7 +783,7 @@ test('real git (NI-1): a worktree seat — .git pointer excluded, real repo conf
 test('real git (NI-2): a copied .gitconfig with core.fsmonitor runs nothing (marker never written)', { skip: !GIT }, async () => {
   const root = tempRoot();
   try {
-    const cwd = path.join(root, '席位 cwd');
+    const cwd = path.join(root, 'café cwd');
     const marker = path.join(root, 'OUTSIDE-MARKER.txt');
     const hook = `echo pwned > '${marker.replace(/\\/g, '/')}'`;
     write(cwd, '.gitconfig', `[core]\n\tfsmonitor = "${hook}"\n\tpager = "${hook}"\n[diff]\n\texternal = "${hook}"\n`);

@@ -183,7 +183,7 @@ if (isMain()) {
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--all') all = true;
     else if (argv[i] === '--deny-file') denyFile = argv[++i];
-    else { process.stderr.write('用法：node dist/public-scan.mjs [--all] [--deny-file <文件>]\n'); process.exit(9); }
+    else { process.stderr.write('Usage: node dist/public-scan.mjs [--all] [--deny-file <file>]\n'); process.exit(9); }
   }
   try {
     const deny = readDenyFile(denyFile);

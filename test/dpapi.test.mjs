@@ -100,7 +100,7 @@ test('off Windows: protect / unprotect refuse with DPAPI_UNAVAILABLE and start n
 });
 
 test('injected spawn: the PowerShell command line never carries the secret; it crosses only stdin, as base64', async () => {
-  const KEY = `${newKey('argv')}-密钥`;
+  const KEY = `${newKey('argv')}-utf8-\u00e9`;
   const BLOB = crypto.randomBytes(180);
   const f = fakePs(({ opts }) => {
     const data = Buffer.from(String(opts.input).trim(), 'base64');
@@ -145,7 +145,7 @@ test('injected spawn: failures map to DPAPI_UNAVAILABLE / DPAPI_FAILED and never
     for (const run of [() => protect(KEY, { spawn: f.spawn, platform: 'win32' }), () => unprotect(Buffer.from('blob-bytes'), { spawn: f.spawn, platform: 'win32' })]) {
       await assert.rejects(run(), (e) => {
         assert.equal(e.code, code, `${JSON.stringify(answer).slice(0, 80)} -> ${e.code}`);
-        assert.ok(/^[A-Z_]+：/.test(e.message), 'message starts with the ASCII code');
+        assert.ok(/^[A-Z_]+: /.test(e.message), 'message starts with the ASCII code');
         assert.ok(!containsKey(e.message, KEY) && !containsKey(JSON.stringify(e), KEY), 'error carries no key');
         assert.ok(!e.message.includes('junk') && !e.message.includes('At line'), 'no stdout/stderr text is quoted');
         return true;
@@ -159,7 +159,7 @@ test('injected spawn: failures map to DPAPI_UNAVAILABLE / DPAPI_FAILED and never
   await assert.rejects(unprotect(Buffer.from('b'), { spawn: bad.spawn, platform: 'win32' }), { code: 'DPAPI_FAILED' });
 });
 
-test('savePiKey refuses a redirected location (MSIX / link) in Chinese, before or after writing', async () => {
+test('savePiKey refuses a redirected location (MSIX / link) in English, before or after writing', async () => {
   const home = tempDir('dpapi-redirect');
   const file = savedPiKeyPath(home);
   const KEY = newKey('redir');
@@ -171,14 +171,14 @@ test('savePiKey refuses a redirected location (MSIX / link) in Chinese, before o
   assert.equal(fs.existsSync(path.dirname(file)), false, 'secrets dir not created');
   // 2. Only the written file turns out redirected: the write is removed and the save refused.
   const late = (p) => (path.resolve(p) === path.resolve(file) ? packaged(p) : null);
-  await assert.rejects(savePiKey(KEY, { file, redirect: late, spawn: ok.spawn, platform: 'win32' }), (e) => e.code === 'PI_KEY_REDIRECTED' && /保存的 key 文件/.test(e.message));
+  await assert.rejects(savePiKey(KEY, { file, redirect: late, spawn: ok.spawn, platform: 'win32' }), (e) => e.code === 'PI_KEY_REDIRECTED' && /saved key file/.test(e.message));
   assert.equal(fs.existsSync(file), false, 'the redirected write was removed');
   const log = readJsonl(path.join(path.dirname(file), 'write-log.jsonl'));
   assert.deepEqual(log.map((r) => r.op), ['mkdir', 'write', 'rm']);
   assert.ok(log.every((r) => r.who === 'admin:pi-key' && isInside(r.path, path.dirname(file))));
   // 3. A link (not MSIX): refused with the real path.
   const link = (p) => ({ asked: path.resolve(p), real: 'D:\\elsewhere', packaged: false });
-  await assert.rejects(savePiKey(KEY, { file, redirect: link, spawn: ok.spawn, platform: 'win32' }), (e) => e.code === 'PI_KEY_REDIRECTED' && /真实位置/.test(e.message));
+  await assert.rejects(savePiKey(KEY, { file, redirect: link, spawn: ok.spawn, platform: 'win32' }), (e) => e.code === 'PI_KEY_REDIRECTED' && /real location/.test(e.message));
   // Invalid keys never reach DPAPI.
   for (const k of ['', '  ', 'a\nb', 'a\rb']) await assert.rejects(savePiKey(k, { file, spawn: ok.spawn, platform: 'win32' }), { code: 'PI_KEY_INVALID' });
 });
@@ -190,11 +190,11 @@ test('admin pi-key (in process): one mode at a time, no value on the flag, DPAPI
   const lines = [];
   const io = (extra = {}) => ({ out: (l) => lines.push(l), env: { ROOM_PI_API_KEY: KEY }, readStdin: () => '', piKeyFile: file, ...extra });
   const pi = (args, i = io()) => ADMIN_COMMANDS['pi-key']({ _: ['pi-key'], ...args }, i);
-  await assert.rejects(pi({ save: true, status: true }), (e) => e instanceof CliError && /一次只能用一个/.test(e.message));
-  await assert.rejects(pi({ save: true, port: '1234' }), /一次只能用一个/);
-  await assert.rejects(pi({ save: KEY }), (e) => e instanceof CliError && /不带值/.test(e.message) && !e.message.includes(KEY), 'a key on the command line is refused, not echoed');
-  await assert.rejects(pi({ save: true }, io({ env: {}, readStdin: () => '' })), /没有拿到 API key/);
-  await assert.rejects(pi({ save: true }, io({ env: {}, readStdin: () => 'a\nb' })), /只能是一行/);
+  await assert.rejects(pi({ save: true, status: true }), (e) => e instanceof CliError && /Use only one of/.test(e.message));
+  await assert.rejects(pi({ save: true, port: '1234' }), /Use only one of/);
+  await assert.rejects(pi({ save: KEY }), (e) => e instanceof CliError && /takes no value/.test(e.message) && !e.message.includes(KEY), 'a key on the command line is refused, not echoed');
+  await assert.rejects(pi({ save: true }, io({ env: {}, readStdin: () => '' })), /No API key provided/);
+  await assert.rejects(pi({ save: true }, io({ env: {}, readStdin: () => 'a\nb' })), /must be a single line/);
   await assert.rejects(pi({ save: true }, io({ dpapi: { platform: 'linux' } })), (e) => e instanceof CliError && /DPAPI_UNAVAILABLE/.test(e.message) && /ROOM_PI_API_KEY/.test(e.message) && !e.message.includes(KEY));
   assert.equal(fs.existsSync(file), false, 'nothing written');
   assert.equal(await pi({ status: true }, io({ dpapi: { platform: 'linux' } })), 0);
@@ -232,7 +232,7 @@ function makeHostedRoom(base, { hosted = true } = {}) {
 function hostedService(env, opts = {}) {
   const logs = [];
   const created = [];
-  const provider = createFakeProvider({ script: [{ text: 'Pi 用保存的 key 发言' }], onCreate: (init) => created.push(init.apiKey) });
+  const provider = createFakeProvider({ script: [{ text: 'Pi spoke using the saved key' }], onCreate: (init) => created.push(init.apiKey) });
   const svc = createRoomService({
     roomDir: env.roomDir, now: () => T0, log: (l) => logs.push(l),
     spawn: async () => ({ code: 0, stdout: '', stderr: '', spawnError: null, timedOut: false }),
@@ -243,7 +243,7 @@ function hostedService(env, opts = {}) {
 }
 
 async function runPiTurn(svc) {
-  await svc.admin({ cmd: 'task', text: '讨论' });
+  await svc.admin({ cmd: 'task', text: 'Discussion' });
   await svc.admin({ cmd: 'start', order: ['P'] });
   for (let i = 0; i < 4; i++) { await svc.tick(); await svc.settle(); }
   return readJsonl(path.join(svc.roomDir, 'events.jsonl'));
@@ -257,7 +257,7 @@ function withoutEnvKey(fn) {
   };
 }
 
-test('service (injected unprotect): reads the saved key only when needed; a failure is a Chinese warning and PI_NO_KEY', withoutEnvKey(async () => {
+test('service (injected unprotect): reads the saved key only when needed; a failure logs a warning and PI_NO_KEY', withoutEnvKey(async () => {
   const base = tempDir('dpapi-svc-inj');
   const keyFile = path.join(base, 'secrets', 'pi-key.dpapi');
   fs.mkdirSync(path.dirname(keyFile), { recursive: true });
@@ -296,11 +296,11 @@ test('service (injected unprotect): reads the saved key only when needed; a fail
   assert.deepEqual(filesContainingKey(e3.roomDir, KEY), []);
   assert.ok(!containsKey(s3.logs.join('\n'), KEY));
 
-  // Decryption fails: Chinese warning with the ASCII code, room continues, hosted seat fails PI_NO_KEY.
+  // Decryption fails: warning with the ASCII code, room continues, hosted seat fails PI_NO_KEY.
   const e4 = makeHostedRoom(tempDir('dpapi-svc-r4'));
-  const s4 = hostedService(e4, { savedPiKeyPath: keyFile, piKeyUnprotect: async () => { throw Object.assign(new Error('DPAPI_FAILED：解密失败'), { code: 'DPAPI_FAILED' }); } });
+  const s4 = hostedService(e4, { savedPiKeyPath: keyFile, piKeyUnprotect: async () => { throw Object.assign(new Error('DPAPI_FAILED: decryption failed'), { code: 'DPAPI_FAILED' }); } });
   const ev4 = await runPiTurn(s4.svc);
-  const warn = s4.logs.find((l) => /警告/.test(l));
+  const warn = s4.logs.find((l) => /Warning:/.test(l));
   assert.ok(warn && /DPAPI_FAILED/.test(warn) && /PI_NO_KEY/.test(warn), warn);
   const sf = ev4.find((e) => e.type === 'seat_failed' && e.seatId === 'P');
   assert.ok(sf && sf.class === 'auth_expired' && /PI_NO_KEY/.test(sf.detail) && /--save/.test(sf.detail), JSON.stringify(sf));
@@ -314,8 +314,8 @@ test('service (injected unprotect): reads the saved key only when needed; a fail
 
 // ---------------------------------------------------------------- Windows: real DPAPI
 
-test('DPAPI round trip: ASCII, Chinese and a 200-character key; the blob does not contain the plaintext', { skip: WIN_ONLY }, async () => {
-  const keys = [newKey('ascii'), `中文密钥-${crypto.randomBytes(4).toString('hex')}-测试`, `sk-${crypto.randomBytes(100).toString('hex')}`.slice(0, 200)];
+test('DPAPI round trip: ASCII, UTF-8 and a 200-character key; the blob does not contain the plaintext', { skip: WIN_ONLY }, async () => {
+  const keys = [newKey('ascii'), `utf8-key-\u00e9\u00fc-${crypto.randomBytes(4).toString('hex')}-test`, `sk-${crypto.randomBytes(100).toString('hex')}`.slice(0, 200)];
   assert.equal(keys[2].length, 200);
   for (const key of keys) {
     const blob = await protect(key);
@@ -345,7 +345,7 @@ test('DPAPI: a tampered blob fails with DPAPI_FAILED and the error does not cont
 });
 
 test('DPAPI (real PowerShell, recorded): the command line never contains the secret; stdin carries it as base64', { skip: WIN_ONLY }, async () => {
-  const KEY = `${newKey('rec')}-中文`;
+  const KEY = `${newKey('rec')}-utf8-\u00e9`;
   const rec = recordingSpawn();
   const blob = await protect(KEY, { spawn: rec.spawn });
   assert.equal(await unprotect(blob, { spawn: rec.spawn }), KEY);
@@ -382,21 +382,21 @@ test('admin pi-key --save / --status / --forget as real CLI processes under ROOM
   const secrets = path.join(home, 'secrets');
   const file = path.join(secrets, 'pi-key.dpapi');
   const KEY = newKey('cli');
-  const KEY2 = `${newKey('cli2')}-中文`;
+  const KEY2 = `${newKey('cli2')}-utf8-\u00e9`;
   const cli = (args, { input, env = {} } = {}) => spawnClean(process.execPath, [ROOM_MJS, 'admin', 'pi-key', ...args], { env: { ROOM_DEV_HOME: home, ...env }, ...(input !== undefined ? { input } : {}), timeoutMs: 90_000 });
   const outputs = [];
   const run = async (args, o) => { const r = await cli(args, o); outputs.push(r.stdout, r.stderr); return r; };
 
   let r = await run(['--status']);
   assert.equal(r.code, 0, r.stderr);
-  assert.ok(r.stdout.startsWith(`PI_KEY_STATUS saved=no path=${fwd(file)}（`), r.stdout);
+  assert.ok(r.stdout.startsWith(`PI_KEY_STATUS saved=no path=${fwd(file)} (`), r.stdout);
 
   // --save from stdin
   r = await run(['--save'], { input: `${KEY}\n` });
   assert.equal(r.code, 0, r.stderr);
   const fp = keyFingerprint(KEY);
   assert.equal(fp.sha256, crypto.createHash('sha256').update(KEY).digest('hex').slice(0, 8));
-  assert.ok(r.stdout.startsWith(`SAVED ${fwd(file)} length=${KEY.length} sha256=${fp.sha256}（`), r.stdout);
+  assert.ok(r.stdout.startsWith(`SAVED ${fwd(file)} length=${KEY.length} sha256=${fp.sha256} (`), r.stdout);
   assert.equal(r.stdout.trim().split('\n').length, 1, 'one line');
   assert.ok(fs.existsSync(file));
   assert.equal(virtualizationRedirect(file), null, 'the saved file is where it says it is');
@@ -411,12 +411,12 @@ test('admin pi-key --save / --status / --forget as real CLI processes under ROOM
   const before = fs.readFileSync(file);
   r = await run(['--save', KEY2]);
   assert.equal(r.code, 9);
-  assert.match(r.stderr, /不带值/);
+  assert.match(r.stderr, /takes no value/);
   assert.ok(fs.readFileSync(file).equals(before));
   // Empty stdin, no env: refused.
   r = await run(['--save'], { input: '' });
   assert.equal(r.code, 9);
-  assert.match(r.stderr, /没有拿到 API key/);
+  assert.match(r.stderr, /No API key provided/);
 
   // --save from ROOM_PI_API_KEY replaces the key.
   r = await run(['--save'], { env: { ROOM_PI_API_KEY: KEY2 } });
@@ -435,10 +435,10 @@ test('admin pi-key --save / --status / --forget as real CLI processes under ROOM
     const evs = await runPiTurn(s.svc);
     assert.deepEqual(s.created, [KEY2], 'the hosted seat was created with the saved key');
     const acc = evs.find((e) => e.type === 'submission_accepted' && e.seatId === 'P');
-    assert.ok(acc && /保存的 key/.test(acc.text));
+    assert.ok(acc && /saved key/.test(acc.text));
     assert.equal(s.svc.view().piKey, 'present');
     assert.equal(s.svc.view().piKeySource, 'saved');
-    assert.ok(s.logs.some((l) => /取自 DPAPI 保存的文件/.test(l)));
+    assert.ok(s.logs.some((l) => /loaded from DPAPI file/.test(l)));
     await s.svc.close();
   } finally {
     if (savedHome === undefined) delete process.env.ROOM_DEV_HOME; else process.env.ROOM_DEV_HOME = savedHome;
@@ -458,7 +458,7 @@ test('admin pi-key --save / --status / --forget as real CLI processes under ROOM
   const env2 = makeHostedRoom(tempDir('dpapi-cli-room2'));
   const s2 = hostedService(env2, { savedPiKeyPath: file });
   const evs2 = await runPiTurn(s2.svc);
-  assert.ok(s2.logs.some((l) => /警告/.test(l) && /DPAPI_FAILED/.test(l)), s2.logs.join('\n'));
+  assert.ok(s2.logs.some((l) => /Warning:/.test(l) && /DPAPI_FAILED/.test(l)), s2.logs.join('\n'));
   assert.ok(evs2.some((e) => e.type === 'seat_failed' && e.seatId === 'P' && /PI_NO_KEY/.test(e.detail)));
   await s2.svc.close();
 

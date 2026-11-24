@@ -1,65 +1,64 @@
-/* ui/lobby.js - the lobby page served by lib/lobby.mjs. Plain ES2020 classic script, no framework.
+/* ui/lobby.js - AgentRoundtable Multi-Room Studio Lobby served by lib/lobby.mjs.
+ * Plain ES2020 classic script, zero build step, zero framework, zero innerHTML, zero web storage.
  *
  *   GET  /lobby/api/meta, /lobby/api/rooms, /lobby/api/seat-defaults?id=&seat=   (no token)
- *   POST /lobby/api/create | open | stop | task | start                          JSON {token, ...}
+ *   GET  /lobby/api/stream                                                       (SSE, no token)
+ *   POST /lobby/api/create | open | stop | task | start | folder                 JSON {token, ...}
  *
- * The lobby token is read once from the URL fragment (#<token>) and the fragment is then removed from
- * the address bar with history.replaceState. It is kept in memory only and sent only inside POST
- * bodies (postJson); getJson never carries it, and no URL this page builds has it in a query string
- * (test/lobby.test.mjs checks this file statically). Text from the server is inserted as text nodes.
+ * The lobby token is read once from the URL fragment (#<token>) and immediately scrubbed with
+ * history.replaceState. It lives strictly in memory and travels only inside POST JSON bodies.
  */
 (function () {
   'use strict';
 
-  var ROLE_SHORT = { lead: '主力', executor: '执行者', reviewer: '审方', participant: '参与者' };
-  var PHASE_LABEL = { idle: '空闲', work: '干活', meet: '开会', summary: '汇总', assign: '分工', done: '本轮结束', closed: '已散会' };
+  var ROLE_SHORT = { lead: 'Lead', executor: 'Executor', reviewer: 'Reviewer', participant: 'Participant' };
+  var WAIT_SHORT = { background: 'Background wait', turn_over: 'Turn-over wait', manual: 'Manual wait', hosted: 'Hosted' };
+  var PHASE_LABEL = { idle: 'Idle', work: 'Work', meet: 'Meet', summary: 'Summary', assign: 'Assign', reconcile: 'Reconcile', done: 'Done', closed: 'Closed' };
   var CODEX_AGENTS = { 'codex-desktop': 1, 'codex-cli': 1 };
-  var HOSTED_PI = 'hosted-pi'; // pseudo-agent in the seat form: the room's built-in Pi
+  var HOSTED_PI = 'hosted-pi';
   var ID_RE = /^[A-Za-z0-9_-]+$/;
 
-  var app = { token: '', meta: null, rooms: [], view: 'rooms', taskOpen: {}, pollTimer: null, seq: 0, lang: 'zh-CN', sse: null, sseConnected: false, daemon: null };
+  var app = { token: '', meta: null, rooms: [], view: 'rooms', taskOpen: Object.create(null), pollTimer: null, seq: 0, lang: 'en', theme: 'light', sse: null, sseConnected: false, daemon: null };
+
   function tUi(key, params, fallback) {
     if (typeof globalThis !== 'undefined' && globalThis.RoomI18n && typeof globalThis.RoomI18n.t === 'function') {
       return globalThis.RoomI18n.t(app.lang, key, params);
     }
     return fallback !== undefined ? fallback : key;
   }
+
+  function detectInitialTheme() {
+    if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+      try { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; } catch (e) { /* ignore */ }
+    }
+    return 'light';
+  }
+  function applyTheme(next) {
+    app.theme = next === 'dark' ? 'dark' : 'light';
+    if (document.documentElement) {
+      if (document.documentElement.dataset) document.documentElement.dataset.theme = app.theme;
+      else if (typeof document.documentElement.setAttribute === 'function') document.documentElement.setAttribute('data-theme', app.theme);
+    }
+    var btn = $('btn-theme');
+    if (btn) {
+      btn.textContent = app.theme === 'dark' ? tUi('theme.light', null, 'Light') : tUi('theme.dark', null, 'Dark');
+      btn.title = tUi('theme.toggleTitle', null, 'Toggle light / dark theme');
+    }
+  }
+
   function updateDaemonBadge(daemon) {
     if (daemon) app.daemon = daemon;
     var el = $('hdr-daemon');
     if (!el) return;
     if (!app.daemon || app.daemon.mode !== 'daemon') { el.classList.add('hidden'); return; }
-    var text = tUi('hdr.daemon.badge', null, '守护进程模式') + ' · ' + tUi('hdr.daemon.open', { n: app.daemon.openRooms || 0 }, '运行中房间：' + (app.daemon.openRooms || 0));
+    var text = tUi('hdr.daemon.badge', null, 'Daemon Mode') + ' · ' + tUi('hdr.daemon.open', { n: app.daemon.openRooms || 0 }, (app.daemon.openRooms || 0) + ' running');
     if (app.daemon.resumedRooms && app.daemon.resumedRooms.length) {
       text += ' · ' + tUi('hdr.daemon.resumed', { n: app.daemon.resumedRooms.length }, '');
     }
     el.textContent = text;
     el.classList.remove('hidden');
   }
-  function applyLobbyLang() {
-    if (document.documentElement) document.documentElement.lang = app.lang;
-    var lobbyTitle = tUi('brand.lobby', null, '圆桌启动器');
-    document.title = lobbyTitle;
-    var brand = $('hdr-brand');
-    if (brand) brand.textContent = lobbyTitle;
-    var langBtn = $('btn-lang');
-    if (langBtn) {
-      langBtn.textContent = tUi('lang.toggle', null, app.lang === 'en' ? '中文' : 'EN');
-      langBtn.title = tUi('lang.toggleTitle', null, '');
-    }
-    var tabs = document.querySelectorAll('#tabs .tab');
-    for (var i = 0; i < tabs.length; i += 1) {
-      var v = tabs[i].getAttribute('data-view');
-      tabs[i].textContent = tUi('lobby.tab.' + v, null, tabs[i].textContent);
-    }
-    if ($('btn-refresh')) $('btn-refresh').textContent = tUi('lobby.refresh', null, '刷新');
-    if ($('btn-goto-create')) $('btn-goto-create').textContent = tUi('lobby.createBtn', null, '新建房间');
-    if ($('lbl-room-lang')) $('lbl-room-lang').textContent = tUi('lobby.langLabel', null, '房间协议语言');
-    if ($('room-lang-hint')) $('room-lang-hint').textContent = tUi('lobby.langHint', null, '');
-    setConn(app.sseConnected || true);
-    setToken(app.token);
-    updateDaemonBadge(app.daemon);
-  }
+
   // Inside the desktop app (app/preload.cjs) window.roomApp offers a native folder picker and the
   // system clipboard; in a browser it is absent and the page behaves as before.
   var APP = (typeof window !== 'undefined' && window.roomApp && window.roomApp.isApp === true) ? window.roomApp : null;
@@ -75,7 +74,7 @@
     return m ? m[1] : frag;
   }
 
-  // ---- DOM helpers ----
+  // ---- DOM helpers (zero innerHTML) ----
   function $(id) { return document.getElementById(id); }
   function h(tag, attrs, children) {
     var el = document.createElement(tag);
@@ -99,12 +98,13 @@
   function clear(el) { while (el.firstChild) el.removeChild(el.firstChild); }
   function toast(text, tone) {
     var box = $('toasts');
+    if (!box) return;
     var el = h('div', { class: 'toast ' + (tone || ''), text: text });
     box.appendChild(el);
     setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 8000);
   }
 
-  // ---- network: GET without token, POST with the token in the body ----
+  // ---- network: GET without token, POST with token in JSON body ----
   function getJson(path) {
     return fetch(path, { method: 'GET', cache: 'no-store', credentials: 'same-origin' }).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (j) { setConn(true); return { status: r.status, json: j || {} }; });
@@ -123,16 +123,20 @@
 
   function setConn(ok) {
     var el = $('hdr-conn');
-    if (ok) el.textContent = app.sseConnected ? tUi('lobby.conn.sse', null, '连接：实时（SSE）') : tUi('lobby.conn.ok', null, '连接：正常');
-    else el.textContent = tUi('lobby.conn.bad', null, '连接：断开（启动器窗口关了？）');
+    if (!el) return;
+    if (ok) el.textContent = app.sseConnected ? tUi('lobby.conn.sse', null, 'Live (SSE)') : tUi('lobby.conn.ok', null, 'Online');
+    else el.textContent = tUi('lobby.conn.bad', null, 'Disconnected');
     el.className = 'conn ' + (ok ? 'conn-ok' : 'conn-bad');
   }
   function setToken(t) {
     app.token = t || '';
     var el = $('hdr-token');
-    el.textContent = app.token ? tUi('lobby.tok.ok', null, '令牌：已载入') : tUi('lobby.tok.missing', null, '令牌：缺失');
-    el.className = 'tok ' + (app.token ? 'tok-ok' : 'tok-missing');
-    $('token-bar').classList.toggle('hidden', !!app.token);
+    if (el) {
+      el.textContent = app.token ? tUi('lobby.tok.ok', null, 'Loaded') : tUi('lobby.tok.missing', null, 'Not loaded');
+      el.className = 'tok ' + (app.token ? 'tok-ok' : 'tok-missing');
+    }
+    var bar = $('token-bar');
+    if (bar) bar.classList.toggle('hidden', !!app.token);
     var btns = document.querySelectorAll('[data-needs-token]');
     for (var i = 0; i < btns.length; i++) btns[i].disabled = !app.token;
   }
@@ -149,18 +153,35 @@
 
   function agentLabel(id) {
     var a = app.meta && app.meta.agents ? app.meta.agents.filter(function (x) { return x.id === id; })[0] : null;
-    return a ? a.label : (id || '未知');
+    return a ? a.label : (id || 'Unknown');
   }
   function waitLabel(id) {
     var w = app.meta && app.meta.waitModes ? app.meta.waitModes.filter(function (x) { return x.id === id; })[0] : null;
-    return w ? w.label : (id || '未知');
+    return w ? w.label : (id || 'Unknown');
+  }
+
+  function seatIdentity(seat) {
+    var id = (seat && seat.seatId) || '—';
+    var agent = seat && typeof seat.agent === 'string' ? seat.agent.toLowerCase() : '';
+    var hosted = seat && typeof seat.hosted === 'string' ? seat.hosted.toLowerCase() : '';
+    if (hosted.indexOf('pi:') === 0 || agent === 'pi-user' || id.toUpperCase() === 'PI') return { family: 'pi', monogram: 'PI', label: seat.hosted ? ('Built-in ' + seat.hosted) : 'Pi' };
+    if (agent === 'claude-code' || /^claude/i.test(id)) return { family: 'claude', monogram: 'CC', label: agentLabel(seat.agent) };
+    if (agent === 'antigravity' || /^anti/i.test(id)) return { family: 'antigravity', monogram: 'AG', label: agentLabel(seat.agent) };
+    if (agent === 'codex-cli' || agent === 'codex-desktop' || /^codex/i.test(id)) return { family: 'codex', monogram: 'CX', label: agentLabel(seat.agent) };
+    if (agent === 'gemini-cli' || /^gemini/i.test(id)) return { family: 'gemini', monogram: 'GM', label: agentLabel(seat.agent) };
+    if (agent === 'opencode' || /^opencode/i.test(id)) return { family: 'opencode', monogram: 'OC', label: agentLabel(seat.agent) };
+    if (agent === 'kimi' || /^kimi/i.test(id)) return { family: 'kimi', monogram: 'KM', label: agentLabel(seat.agent) };
+    if (agent === 'dsh' || /^dsh/i.test(id)) return { family: 'dsh', monogram: 'DH', label: agentLabel(seat.agent) };
+    if (/^deepseek/i.test(id)) return { family: 'deepseek', monogram: 'DS', label: agentLabel(seat.agent) };
+    var clean = String(id).replace(/[^A-Za-z0-9]/g, '');
+    return { family: 'other', monogram: clean ? clean.slice(0, 2).toUpperCase() : 'RT', label: seat.hosted ? ('Built-in ' + seat.hosted) : agentLabel(seat.agent) };
   }
 
   function copyText(text, btn) {
     function done(ok) {
       if (!btn) return;
       var old = btn.textContent;
-      btn.textContent = ok ? '已复制' : '复制失败，请手动选中';
+      btn.textContent = ok ? 'Copied' : 'Copy failed — select manually';
       setTimeout(function () { btn.textContent = old; }, 1600);
     }
     if (APP && typeof APP.copyText === 'function') {
@@ -179,18 +200,19 @@
     return ok;
   }
 
-  // One 入席 card: the sentence to say to the agent, a copy button, the agent-specific hint.
+  // One join-prompt card: exact sentence to send to the agent, copy button, and agent-specific guidance.
   function joinCard(seat) {
+    var ident = seatIdentity(seat);
     var head = h('h5', {}, [
-      '席位 ' + seat.seatId,
+      'Seat ' + seat.seatId,
       h('span', { class: 'badge', text: ROLE_SHORT[seat.role] || seat.role }),
-      h('span', { class: 'badge info', text: seat.hosted ? ('内置 ' + seat.hosted) : agentLabel(seat.agent) }),
+      h('span', { class: 'badge info', text: ident.label }),
     ]);
     var body = [head];
     if (seat.sentence) {
-      var btn = h('button', { type: 'button', class: 'btn-small', text: '复制这句话' });
+      var btn = h('button', { type: 'button', class: 'btn-small', text: 'Copy Prompt' });
       btn.addEventListener('click', function () { copyText(seat.sentence, btn); });
-      body.push(h('div', { class: 'hint', text: '把这句话发给这个席位的 agent：' }));
+      body.push(h('div', { class: 'hint', text: 'Send this prompt to the agent for this seat:' }));
       body.push(h('div', { class: 'sentence' }, [h('code', { text: seat.sentence }), btn]));
     }
     if (seat.hint) body.push(h('div', { class: 'hint', text: seat.hint }));
@@ -198,44 +220,37 @@
     return h('div', { class: 'join-card' }, body);
   }
 
-  // ---- room actions (shared by the list and the after-create view) ----
+  // ---- room actions (shared by the room grid and post-create view) ----
   function openRoomUi(id, btn) {
-    if (!app.token) { toast('没有启动器令牌，不能打开房间。', 'bad'); return; }
+    if (!app.token) { toast('Launcher token is not loaded; cannot open room.', 'bad'); return; }
     if (APP) { openRoomUiInApp(id, btn); return; }
-    // Open the window inside the click (popup blockers allow that), then point it at the room UI.
     var w = null;
     try { w = window.open('about:blank', '_blank'); } catch (e) { w = null; }
     if (w) { try { w.opener = null; } catch (e) { /* ignore */ } }
     if (btn) btn.disabled = true;
     postJson('/lobby/api/open', { id: id }).then(function (res) {
       if (btn) btn.disabled = false;
-      if (res.status !== 200 || !res.json.ok) { if (w) w.close(); toast('打开失败：' + errText(res), 'bad'); return; }
+      if (res.status !== 200 || !res.json.ok) { if (w) w.close(); toast('Failed to open room: ' + errText(res), 'bad'); return; }
       var url = res.json.url;
-      // Always leave a link: some browsers (embedded ones, strict popup settings) hand back a window
-      // object yet never show the tab, so a returned `w` is no proof the user can see the room.
-      if (w) { try { w.location.replace(url); } catch (e) { /* the link below still works */ } }
+      if (w) { try { w.location.replace(url); } catch (e) { /* fallback link stays below */ } }
       showRoomLink(id, url, !w);
-      toast(res.json.already ? '房间 ' + id + ' 已经开着。' : '房间 ' + id + ' 已打开。', 'ok');
+      toast(res.json.already ? 'Room ' + id + ' is already running.' : 'Room ' + id + ' opened.', 'ok');
       refreshRooms();
-    }, function () { if (btn) btn.disabled = false; if (w) w.close(); toast('打开失败：连不上启动器。', 'bad'); });
+    }, function () { if (btn) btn.disabled = false; if (w) w.close(); toast('Failed to open room: launcher unreachable.', 'bad'); });
   }
-  // In the desktop app there is no popup blocker: ask the lobby first, then window.open the room UI;
-  // the app turns that into a room window of its own (only for ports this lobby opened). The link
-  // below stays as the fallback, as in the browser.
   function openRoomUiInApp(id, btn) {
     if (btn) btn.disabled = true;
     postJson('/lobby/api/open', { id: id }).then(function (res) {
       if (btn) btn.disabled = false;
-      if (res.status !== 200 || !res.json.ok) { toast('打开失败：' + errText(res), 'bad'); return; }
+      if (res.status !== 200 || !res.json.ok) { toast('Failed to open room: ' + errText(res), 'bad'); return; }
       var url = res.json.url;
-      try { window.open(url, '_blank'); } catch (e) { /* the link below still works */ }
+      try { window.open(url, '_blank'); } catch (e) { /* fallback link stays below */ }
       showRoomLink(id, url, false);
-      toast(res.json.already ? '房间 ' + id + ' 已经开着。' : '房间 ' + id + ' 已打开。', 'ok');
+      toast(res.json.already ? 'Room ' + id + ' is already running.' : 'Room ' + id + ' opened.', 'ok');
       refreshRooms();
-    }, function () { if (btn) btn.disabled = false; toast('打开失败：连不上启动器。', 'bad'); });
+    }, function () { if (btn) btn.disabled = false; toast('Failed to open room: launcher unreachable.', 'bad'); });
   }
-  // The room id never goes into a selector: compare the attribute instead (an id read from someone's
-  // room.json could contain quotes or brackets).
+  // Never interpolate room IDs into CSS selectors.
   function roomLinkBox(id) {
     var boxes = document.querySelectorAll('[data-room-link]');
     for (var i = 0; i < boxes.length; i++) if (boxes[i].getAttribute('data-room-link') === String(id)) return boxes[i];
@@ -243,109 +258,134 @@
   }
   function showRoomLink(id, url, blocked) {
     var box = roomLinkBox(id);
-    if (!box) { if (blocked) toast('浏览器拦住了新窗口；请允许本页弹窗后再点一次「打开房间界面」。', 'bad'); return; }
+    if (!box) { if (blocked) toast('Popup blocked by browser; allow popups and click "Open Room UI" again.', 'bad'); return; }
     clear(box);
-    box.appendChild(h('a', { href: url, target: '_blank', rel: 'noopener noreferrer', text: blocked ? '浏览器拦住了新窗口，点这里打开房间界面' : '没有自动打开的话，点这里打开房间界面' }));
+    box.appendChild(h('a', { href: url, target: '_blank', rel: 'noopener noreferrer', text: blocked ? 'Popup blocked — click here to open Room UI' : 'Open Room UI in new tab ↗' }));
   }
   function stopRoom(id, btn) {
     if (btn) btn.disabled = true;
     postJson('/lobby/api/stop', { id: id }).then(function (res) {
       if (btn) btn.disabled = false;
-      if (res.status !== 200 || !res.json.ok) { toast('停止失败：' + errText(res), 'bad'); return; }
-      toast('房间 ' + id + ' 的服务已停止。', 'ok');
+      if (res.status !== 200 || !res.json.ok) { toast('Failed to stop room: ' + errText(res), 'bad'); return; }
+      toast('Stopped room service for ' + id + '.', 'ok');
       refreshRooms();
-    }, function () { if (btn) btn.disabled = false; toast('停止失败：连不上启动器。', 'bad'); });
+    }, function () { if (btn) btn.disabled = false; toast('Failed to stop room: launcher unreachable.', 'bad'); });
   }
 
-  // 给任务并开始: task text, then start with the given order (opens the room first when needed).
   function taskForm(room) {
-    var ta = h('textarea', { placeholder: '任务，例如：给 parser.mjs 加 --strict 开关，验收：node --test parser.test.mjs' });
+    var ta = h('textarea', { placeholder: 'Describe the objective, e.g. Add --strict mode to parser.mjs; acceptance: node --test parser.test.mjs' });
     var lead = room.seats.filter(function (s) { return s.role === 'lead'; }).map(function (s) { return s.seatId; });
     var rest = room.seats.filter(function (s) { return s.role !== 'lead'; }).map(function (s) { return s.seatId; });
     var order = h('input', { type: 'text', value: lead.concat(rest).join(','), placeholder: 'A,B' });
-    var go = h('button', { type: 'button', class: 'primary', text: '给任务并开始', 'data-needs-token': true, disabled: !app.token });
+    var go = h('button', { type: 'button', class: 'primary', text: 'Assign Task & Start', 'data-needs-token': true, disabled: !app.token });
     var status = h('span', { class: 'hint' });
     go.addEventListener('click', function () {
       var text = ta.value.trim();
-      if (!text) { toast('先写任务。', 'bad'); return; }
+      if (!text) { toast('Enter a task objective first.', 'bad'); return; }
       var ids = order.value.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
-      for (var i = 0; i < ids.length; i++) if (!ID_RE.test(ids[i])) { toast('发言顺序里的「' + ids[i] + '」不是席位编号。', 'bad'); return; }
+      for (var i = 0; i < ids.length; i++) if (!ID_RE.test(ids[i])) { toast('Invalid seat ID in speaking order: "' + ids[i] + '".', 'bad'); return; }
       go.disabled = true;
-      status.textContent = '正在提交……';
-      // open is idempotent: it starts the room's service when needed and otherwise answers `already`.
+      status.textContent = 'Submitting…';
       postJson('/lobby/api/open', { id: room.id }).then(function (o) {
-        if (o.status !== 200 || !o.json.ok) throw new Error('打开失败：' + errText(o));
+        if (o.status !== 200 || !o.json.ok) throw new Error('Open failed: ' + errText(o));
         var payload = ids.length ? { id: room.id, task: text, order: ids } : { id: room.id, task: text };
         return postJson('/lobby/api/start', payload);
       }).then(function (s) {
-        if (s.status !== 200 || !s.json.ok) throw new Error('没能开始：' + errText(s));
-        status.textContent = '已开始第 ' + (s.json.roundId || '?') + ' 轮。';
-        toast('房间 ' + room.id + ' 已开始。到房间界面里看发言流。', 'ok');
+        if (s.status !== 200 || !s.json.ok) throw new Error('Start failed: ' + errText(s));
+        status.textContent = 'Started Round ' + (s.json.roundId || '?') + '.';
+        toast('Room ' + room.id + ' started. Open the Room UI to follow the live stream.', 'ok');
         app.taskOpen[room.id] = false;
         refreshRooms();
       }).catch(function (e) {
         status.textContent = '';
-        toast(e && e.message ? e.message : '提交失败：连不上启动器。', 'bad');
+        toast(e && e.message ? e.message : 'Submit failed: launcher unreachable.', 'bad');
       }).then(function () { go.disabled = !app.token; });
     });
     return h('div', { class: 'task-form' }, [
-      h('label', { class: 'hint', text: '任务（作为 admin task 交给房间）' }), ta,
-      h('div', { class: 'inline-form' }, [h('span', { class: 'hint', text: '发言顺序（席位编号，逗号分隔）' }), order, go, status]),
-      h('div', { class: 'hint', text: '房间服务还没启动时，提交会先在启动器里启动它（不弹出界面）。轮到哪个席位，就去提醒对应的 agent，或等唤醒推送。' }),
+      h('label', { class: 'hint', text: 'Room Objective (sent as admin task)' }), ta,
+      h('div', { class: 'inline-form' }, [h('span', { class: 'hint', text: 'Turn order (comma-separated seat IDs)' }), order, go, status]),
+      h('div', { class: 'hint', text: 'If the room service is stopped, submitting starts it automatically without popping open a window.' }),
+    ]);
+  }
+
+  function seatChip(s) {
+    var ident = seatIdentity(s);
+    var metaParts = [ident.label];
+    if (s.waitMode) metaParts.push(WAIT_SHORT[s.waitMode] || waitLabel(s.waitMode));
+    if (s.wakeThread) metaParts.push('thread:' + s.wakeThread);
+    return h('div', { class: 'seat-chip', 'data-family': ident.family, title: s.cwd || '' }, [
+      h('span', { class: 'seat-avatar', 'aria-hidden': 'true', text: ident.monogram }),
+      h('div', { class: 'seat-chip-body' }, [
+        h('div', { class: 'seat-chip-top' }, [
+          h('span', { class: 'seat-chip-id', text: 'Seat ' + s.seatId }),
+          h('span', { class: 'seat-chip-role', text: ROLE_SHORT[s.role] || s.role }),
+        ]),
+        h('div', { class: 'seat-chip-meta', text: metaParts.join(' · ') }),
+        s.cwd ? h('div', { class: 'seat-chip-cwd', text: s.cwd }) : null,
+      ]),
     ]);
   }
 
   function roomCard(room) {
-    var running = room.openedHere ? h('span', { class: 'badge ok', text: '服务：在本启动器里运行' })
-      : (room.serviceRunning ? h('span', { class: 'badge warn', text: '服务：在别处运行' }) : h('span', { class: 'badge', text: '服务：未运行' }));
-    var head = h('h4', {}, [
-      room.id,
-      h('span', { class: 'badge info', text: room.preset || '无预设' }),
-      room.lang ? h('span', { class: 'badge', text: room.lang === 'en' ? 'EN' : '中文' }) : null,
-      h('span', { class: 'badge', text: '阶段 ' + (room.closed ? PHASE_LABEL.closed : (PHASE_LABEL[room.phase] || room.phase)) }),
-      h('span', { class: 'badge', text: '第 ' + room.roundId + ' 轮' }),
-      running,
+    var dotCls = room.openedHere ? 'room-status-dot running' : (room.serviceRunning ? 'room-status-dot external' : 'room-status-dot');
+    var runningBadge = room.openedHere
+      ? h('span', { class: 'badge ok', text: 'Running here' })
+      : (room.serviceRunning ? h('span', { class: 'badge warn', text: 'Running elsewhere' }) : h('span', { class: 'badge', text: 'Stopped' }));
+    var phaseText = room.closed ? PHASE_LABEL.closed : (PHASE_LABEL[room.phase] || room.phase);
+    var head = h('div', { class: 'room-card-head' }, [
+      h('div', { class: 'room-card-title-row' }, [
+        h('span', { class: dotCls, 'aria-hidden': 'true' }),
+        h('span', { class: 'room-id-title', text: room.id }),
+        h('span', { class: 'badge info', text: room.preset || 'custom' }),
+      ]),
+      h('div', { class: 'room-meta-badges' }, [
+        h('span', { class: 'badge', text: phaseText }),
+        h('span', { class: 'badge tabular', text: 'R' + room.roundId }),
+        runningBadge,
+      ]),
     ]);
-    var rows = room.seats.map(function (s) {
-      return h('tr', {}, [
-        h('td', { text: s.seatId }),
-        h('td', { text: ROLE_SHORT[s.role] || s.role }),
-        h('td', { text: s.hosted ? '内置 ' + s.hosted : agentLabel(s.agent) }),
-        h('td', { text: waitLabel(s.waitMode) }),
-        h('td', { text: s.wakeThread || '—' }),
-        h('td', { class: 'mono', text: s.cwd }),
-      ]);
-    });
-    var table = h('div', { class: 'table-wrap' }, [h('table', { class: 'table' }, [
-      h('thead', {}, [h('tr', {}, ['席位', '职责', 'agent', '等待方式', 'Codex 线程名', '工作文件夹'].map(function (t) { return h('th', { text: t }); }))]),
-      h('tbody', {}, rows.length ? rows : [h('tr', {}, [h('td', { colspan: '6', class: 'empty', text: '还没有席位' })])]),
-    ])]);
-    var joins = h('details', { class: 'seat-join' }, [h('summary', { text: '入席说明（每个 agent 一句话）' })].concat(room.seats.map(joinCard)));
 
-    var openBtn = h('button', { type: 'button', class: 'primary', text: '打开房间界面', 'data-needs-token': true, disabled: !app.token || (room.serviceRunning && !room.openedHere) });
+    var seatStrip = room.seats && room.seats.length
+      ? h('div', { class: 'seat-strip' }, room.seats.map(seatChip))
+      : h('div', { class: 'empty', text: 'No seats registered yet.' });
+
+    var joins = h('details', { class: 'seat-join' }, [
+      h('summary', { text: 'Join Prompts (' + (room.seats ? room.seats.length : 0) + ' seats)' }),
+    ].concat((room.seats || []).map(joinCard)));
+
+    var openBtn = h('button', { type: 'button', class: 'primary', text: 'Open Room UI', 'data-needs-token': true, disabled: !app.token || (room.serviceRunning && !room.openedHere) });
     openBtn.addEventListener('click', function () { openRoomUi(room.id, openBtn); });
-    var stopBtn = h('button', { type: 'button', class: 'danger', text: '停止', 'data-needs-token': true, disabled: !app.token || !room.openedHere });
+    var stopBtn = h('button', { type: 'button', class: 'danger', text: 'Stop', 'data-needs-token': true, disabled: !app.token || !room.openedHere });
     stopBtn.addEventListener('click', function () { stopRoom(room.id, stopBtn); });
-    var taskBtn = h('button', { type: 'button', text: app.taskOpen[room.id] ? '收起任务' : '给任务并开始', disabled: room.closed || (room.serviceRunning && !room.openedHere) });
+    var taskBtn = h('button', { type: 'button', text: app.taskOpen[room.id] ? 'Hide Task Form' : 'Assign Task & Start', disabled: room.closed || (room.serviceRunning && !room.openedHere) });
     taskBtn.addEventListener('click', function () { app.taskOpen[room.id] = !app.taskOpen[room.id]; renderRooms(true); });
-    var actions = h('div', { class: 'actions' }, [openBtn, stopBtn, taskBtn,
-      room.serviceRunning && !room.openedHere ? h('span', { class: 'hint', text: '这个房间的服务在别的窗口里运行；到那里用它，或先关掉它。' }) : null,
-      h('span', { 'data-room-link': room.id })]);
+
+    var footer = h('div', { class: 'room-card-footer' }, [
+      h('div', { class: 'room-card-actions' }, [openBtn, taskBtn, stopBtn]),
+      h('div', { class: 'room-card-actions' }, [
+        room.serviceRunning && !room.openedHere ? h('span', { class: 'hint', text: 'Service is running in another window; manage or stop it there first.' }) : null,
+        h('span', { 'data-room-link': room.id }),
+      ]),
+    ]);
+
     var children = [head];
-    if (room.idMismatch) children.push(h('div', { class: 'hint', text: '这个房间目录叫 ' + room.id + '，但 room.json 里写的房间编号是 ' + room.roomId + '；启动器按目录名操作它。' }));
-    if (room.task) children.push(h('div', { class: 'hint', text: '当前任务：' + room.task }));
-    children.push(table, joins, actions);
+    if (room.idMismatch) children.push(h('div', { class: 'hint', text: 'Directory name is "' + room.id + '" while room.json records "' + room.roomId + '"; launcher actions address the directory name.' }));
+    if (room.task) children.push(h('div', { class: 'room-task-snippet' }, [h('strong', { text: 'Objective:' }), room.task]));
+    children.push(seatStrip, joins, footer);
     if (app.taskOpen[room.id]) children.push(taskForm(room));
-    return h('div', { class: 'card', 'data-room': room.id }, children);
+    return h('div', { class: 'card room-card', 'data-room': room.id }, children);
   }
 
-  // Re-rendering replaces the cards; skip it while the user is typing into a task form.
+  // Re-rendering replaces cards; skip while user is typing inside an inline task form.
   function renderRooms(force) {
     var box = $('rooms');
+    if (!box) return;
     if (!force && box.contains(document.activeElement) && /^(TEXTAREA|INPUT)$/.test(document.activeElement.tagName)) return;
+    var countEl = $('rooms-count');
+    if (countEl) countEl.textContent = String(app.rooms.length);
     clear(box);
     if (!app.rooms.length) {
-      box.appendChild(h('div', { class: 'card' }, [h('p', { class: 'empty', text: '还没有房间。点「新建房间」开始。' })]));
+      box.appendChild(h('div', { class: 'card' }, [h('p', { class: 'empty', text: 'No rooms yet. Click "New Room" to create your first multi-agent workspace.' })]));
       return;
     }
     app.rooms.forEach(function (r) { box.appendChild(roomCard(r)); });
@@ -360,9 +400,9 @@
   }
   function refreshRooms() {
     return getJson('/lobby/api/rooms').then(function (res) {
-      if (res.status !== 200 || !res.json.ok) { toast('读房间列表失败：' + errText(res), 'bad'); return; }
+      if (res.status !== 200 || !res.json.ok) { toast('Failed to load rooms: ' + errText(res), 'bad'); return; }
       applyRoomsSnapshot(res.json);
-    }, function () { /* connection badge already says so */ });
+    }, function () { /* connection pill already reports offline */ });
   }
   function connectLobbySse() {
     if (typeof EventSource === 'undefined' || app.sse) return;
@@ -394,30 +434,30 @@
   function seatRow(init) {
     init = init || {};
     var row = h('div', { class: 'seat-row' });
-    var idIn = h('input', { type: 'text', class: 'seat-id', value: init.seatId || '', placeholder: '席位编号', 'aria-label': '席位编号' });
-    var role = h('select', { 'aria-label': '职责' });
+    var idIn = h('input', { type: 'text', class: 'seat-id', value: init.seatId || '', placeholder: 'Seat ID', 'aria-label': 'Seat ID' });
+    var role = h('select', { 'aria-label': 'Role' });
     fillSelect(role, (app.meta.roles || []).map(function (r) { return { id: r.id, label: r.label }; }), init.role || 'participant');
-    var agent = h('select', { 'aria-label': 'agent' });
-    var agentItems = (app.meta.agents || []).map(function (a) { return { id: a.id, label: a.label + '（' + a.id + '）' }; });
-    if ((app.meta.hostedTiers || []).length) agentItems.push({ id: HOSTED_PI, label: '房间内置 Pi（不需要另开 agent）' });
+    var agent = h('select', { 'aria-label': 'Agent' });
+    var agentItems = (app.meta.agents || []).map(function (a) { return { id: a.id, label: a.label + ' (' + a.id + ')' }; });
+    if ((app.meta.hostedTiers || []).length) agentItems.push({ id: HOSTED_PI, label: 'Built-in Pi (room-hosted)' });
     fillSelect(agent, agentItems, init.hosted ? HOSTED_PI : (init.agent || 'generic'));
-    var tier = h('select', { 'aria-label': '内置 Pi 档位' });
+    var tier = h('select', { 'aria-label': 'Built-in Pi Tier' });
     fillSelect(tier, (app.meta.hostedTiers || []).map(function (t) { return { id: t.id, label: t.label }; }), init.hosted && /^pi:/.test(init.hosted) ? init.hosted.slice(3) : 'discussion');
-    var tierRow = [h('label', { text: '内置 Pi 档位' }), h('div', {}, [tier, h('div', { class: 'hint', text: '由房间自己托管，不需要发入席句子。启动房间前用 ROOM_PI_API_KEY 或 admin pi-key --save 准备好 key。' })])];
-    var wait = h('select', { 'aria-label': '等待方式' });
-    var waitRow = [h('label', { text: '等待方式' }), wait];
-    var cwd = h('input', { type: 'text', value: init.cwd || '', placeholder: '工作文件夹的绝对路径', 'aria-label': '工作文件夹' });
+    var tierRow = [h('label', { text: 'Built-in Pi Tier' }), h('div', {}, [tier, h('div', { class: 'hint', text: 'Hosted directly by the room service; no join prompt needed. Configure ROOM_PI_API_KEY or `admin pi-key --save` before starting.' })])];
+    var wait = h('select', { 'aria-label': 'Wait Mode' });
+    var waitRow = [h('label', { text: 'Wait Mode' }), wait];
+    var cwd = h('input', { type: 'text', value: init.cwd || '', placeholder: 'Absolute path to working directory', 'aria-label': 'Working Directory' });
     var create = h('input', { type: 'checkbox', checked: init.createCwd !== false });
-    var thread = h('input', { type: 'text', value: '', placeholder: 'room-<房间编号>-A', 'aria-label': 'Codex 线程名' });
-    var threadRow = [h('label', { text: 'Codex 线程名' }), h('div', {}, [thread, h('div', { class: 'hint', text: '把 Codex 里这个席位的线程重命名成这个名字（要和别的线程都不一样），轮到它时房间按名字找到线程并推送一句提醒。清空就不推送。' })])];
+    var thread = h('input', { type: 'text', value: '', placeholder: 'room-<roomId>-A', 'aria-label': 'Codex Wake Thread' });
+    var threadRow = [h('label', { text: 'Codex Wake Thread' }), h('div', {}, [thread, h('div', { class: 'hint', text: 'Rename your Codex thread to this unique name so wake pushes can target it automatically. Leave blank to disable wake push.' })])];
     var cwdNote = h('div', { class: 'hint' });
-    var remove = h('button', { type: 'button', class: 'btn-small danger', text: '删掉这个席位' });
+    var remove = h('button', { type: 'button', class: 'btn-small danger', text: 'Remove Seat' });
     row._touched = { cwd: !!init.cwd, thread: false };
 
     function isPi() { return agent.value === HOSTED_PI; }
     function refreshWait() {
       var a = (app.meta.agents || []).filter(function (x) { return x.id === agent.value; })[0];
-      var items = [{ id: '', label: '按 agent 默认（' + waitLabel(a ? a.wait : 'manual') + '）' }].concat((app.meta.waitModes || []).map(function (w) { return { id: w.id, label: w.label }; }));
+      var items = [{ id: '', label: 'Agent default (' + waitLabel(a ? a.wait : 'manual') + ')' }].concat((app.meta.waitModes || []).map(function (w) { return { id: w.id, label: w.label }; }));
       var keep = wait.value;
       fillSelect(wait, items, keep || '');
       waitRow.forEach(function (el) { el.classList.toggle('hidden', isPi()); });
@@ -426,21 +466,23 @@
     function refreshThread() {
       var codex = !!CODEX_AGENTS[agent.value];
       threadRow.forEach(function (el) { el.classList.toggle('hidden', !codex); });
-      if (!row._touched.thread) thread.value = 'room-' + ($('room-id').value.trim() || 'demo') + '-' + (idIn.value.trim() || 'A');
+      if (!row._touched.thread) {
+        var rid = $('room-id').value.trim() || 'demo';
+        thread.value = (rid.indexOf('room-') === 0 ? rid : 'room-' + rid) + '-' + (idIn.value.trim() || 'A');
+      }
     }
-    // A typed or pasted path: ask the lobby (read-only) whether it exists, and tick 替我新建 only
-    // when it does not, the same way the suggested folder is handled.
     function checkTypedCwd() {
       var v = cwd.value.trim();
       var mine = ++app.seq;
       row._seq = mine;
-      if (!isAbsPath(v)) { cwdNote.textContent = v ? '要写完整的绝对路径（例如 C:\\Users\\你\\project）。' : ''; return; }
+      if (!isAbsPath(v)) { cwdNote.textContent = v ? 'Enter a full absolute path (e.g. C:\\Users\\you\\project or /home/you/project).' : ''; return; }
       if (!app.token) return;
       postJson('/lobby/api/folder', { path: v }).then(function (res) {
         if (row._seq !== mine || res.status !== 200 || !res.json.ok) return;
         create.checked = !res.json.exists;
-        cwdNote.textContent = !res.json.exists ? '这个文件夹还不存在；保持勾选，启动器替你新建一个空文件夹。'
-          : (res.json.isDir ? '这个文件夹已经存在，会直接使用它（已取消勾选「替我新建」）。' : '这个路径是一个文件，不是文件夹。');
+        cwdNote.textContent = !res.json.exists
+          ? 'Folder does not exist yet; keep checked to create an empty folder automatically.'
+          : (res.json.isDir ? 'Existing folder found and will be used directly ("Create empty folder" unchecked).' : 'This path points to a file, not a directory.');
       }, function () {});
     }
     function refreshCwd() {
@@ -454,28 +496,29 @@
         if (row._seq !== mine || row._touched.cwd || res.status !== 200 || !res.json.ok) return;
         cwd.value = res.json.cwd;
         create.checked = !res.json.exists;
-        cwdNote.textContent = res.json.exists ? '这个文件夹已经存在，会直接使用它。' : '建议的位置；勾选下面的框，启动器替你新建这个空文件夹。';
+        cwdNote.textContent = res.json.exists
+          ? 'Existing folder found and will be used directly.'
+          : 'Suggested path; keep checked to create this empty folder automatically.';
       }, function () {});
     }
     row._refreshCwd = refreshCwd;
-
     row._refreshThread = refreshThread;
 
     idIn.addEventListener('input', function () { refreshThread(); refreshCwd(); });
     agent.addEventListener('change', function () { refreshWait(); refreshThread(); });
     cwd.addEventListener('input', function () {
       row._touched.cwd = true;
-      cwdNote.textContent = '正在查这个文件夹……';
+      cwdNote.textContent = 'Checking folder…';
       if (row._cwdTimer) clearTimeout(row._cwdTimer);
       row._cwdTimer = setTimeout(checkTypedCwd, 300);
     });
     thread.addEventListener('input', function () { row._touched.thread = true; });
     remove.addEventListener('click', function () { if (row.parentNode) row.parentNode.removeChild(row); });
 
-    // 浏览…: the desktop app's native folder picker (it may also create a new folder there).
+    // Native folder picker inside the desktop app.
     var browse = null;
     if (APP && typeof APP.pickFolder === 'function') {
-      browse = h('button', { type: 'button', class: 'btn-small', text: '浏览…' });
+      browse = h('button', { type: 'button', class: 'btn-small', text: 'Browse…' });
       browse.addEventListener('click', function () {
         browse.disabled = true;
         APP.pickFolder(cwd.value.trim() || null).then(function (picked) {
@@ -484,20 +527,20 @@
           cwd.value = picked;
           row._touched.cwd = true;
           app.seatsEdited = true;
-          cwdNote.textContent = '正在查这个文件夹……';
+          cwdNote.textContent = 'Checking folder…';
           checkTypedCwd();
-        }, function () { browse.disabled = false; toast('没能打开文件夹选择框。', 'bad'); });
+        }, function () { browse.disabled = false; toast('Could not open folder picker.', 'bad'); });
       });
     }
 
-    row.appendChild(h('div', { class: 'row-head' }, [h('span', { class: 'hint', text: '席位' }), idIn, h('span', { class: 'spacer' }), remove]));
+    row.appendChild(h('div', { class: 'row-head' }, [h('span', { class: 'hint', text: 'Seat' }), idIn, h('span', { class: 'spacer' }), remove]));
     row.appendChild(h('div', { class: 'row-grid' }, [
-      h('label', { text: '职责' }), role,
-      h('label', { text: 'agent' }), agent,
+      h('label', { text: 'Role' }), role,
+      h('label', { text: 'Agent' }), agent,
     ].concat(tierRow, waitRow, [
-      h('label', { text: '工作文件夹' }), h('div', {}, [
+      h('label', { text: 'Working Dir' }), h('div', {}, [
         h('div', { class: 'cwd-line' }, [cwd, browse]),
-        h('label', { class: 'check' }, [create, '替我新建这个空文件夹']),
+        h('label', { class: 'check' }, [create, 'Create empty folder automatically']),
         cwdNote,
       ]),
     ], threadRow)));
@@ -506,7 +549,7 @@
     if (init.wait) wait.value = init.wait;
     row._read = function () {
       var s = { seatId: idIn.value.trim(), role: role.value, cwd: cwd.value.trim(), createCwd: !!create.checked };
-      // A built-in Pi seat: hosted 'pi:<tier>', no agent, wait mode or Codex thread.
+      // Built-in Pi seat: hosted 'pi:<tier>', no external agent, wait mode, or Codex thread.
       if (isPi()) { s.hosted = 'pi:' + tier.value; return s; }
       s.agent = agent.value;
       if (wait.value) s.wait = wait.value;
@@ -517,7 +560,6 @@
   }
   function isAbsPath(v) { return /^[A-Za-z]:[\\/]/.test(v) || /^\\\\[^\\]/.test(v) || /^\//.test(v); }
 
-  // Seats each preset starts with. simplified: one agent of yours plus the room's built-in Pi.
   function presetSeats(preset) {
     if (preset === 'simplified') return [{ seatId: 'A', role: 'lead', agent: 'codex-desktop' }, { seatId: 'P', role: 'participant', hosted: 'pi:discussion' }];
     return [{ seatId: 'A', role: 'lead', agent: 'codex-desktop' }, { seatId: 'B', role: 'executor', agent: 'claude-code' }];
@@ -552,54 +594,60 @@
 
   function submitCreate(ev) {
     ev.preventDefault();
-    if (!app.token) { toast('没有启动器令牌，不能建房。', 'bad'); return; }
+    if (!app.token) { toast('Launcher token is not loaded; cannot create room.', 'bad'); return; }
     var id = $('room-id').value.trim();
-    if (!ID_RE.test(id)) { toast('房间编号只能用字母、数字、- 和 _。', 'bad'); return; }
+    if (!ID_RE.test(id)) { toast('Room ID may contain only letters, digits, - and _.', 'bad'); return; }
     var rows = $('seat-rows').children;
     var seats = [];
     for (var i = 0; i < rows.length; i++) seats.push(rows[i]._read());
-    if (!seats.length) { toast('至少要有一个席位。', 'bad'); return; }
+    if (!seats.length) { toast('Add at least one seat before creating a room.', 'bad'); return; }
     var btn = $('btn-create');
     btn.disabled = true;
-    $('create-status').textContent = '正在建房……';
-    var roomLang = $('room-lang') ? $('room-lang').value : 'zh-CN';
+    $('create-status').textContent = 'Creating room…';
+    var roomLang = $('room-lang') ? $('room-lang').value : 'en';
     postJson('/lobby/api/create', { id: id, preset: $('room-preset').value, lang: roomLang, seats: seats }).then(function (res) {
       btn.disabled = !app.token;
       if (res.status !== 200 || !res.json.ok) {
-        $('create-status').textContent = '';
-        $('create-status').appendChild(h('span', { class: 'error', text: '没建成：' + errText(res) }));
-        toast('没建成：' + errText(res), 'bad');
+        clear($('create-status'));
+        $('create-status').appendChild(h('span', { class: 'error', text: 'Create failed: ' + errText(res) }));
+        toast('Create failed: ' + errText(res), 'bad');
         return;
       }
       $('create-status').textContent = '';
       renderCreated(res.json);
       refreshRooms();
-    }, function () { btn.disabled = !app.token; $('create-status').textContent = ''; toast('建房失败：连不上启动器。', 'bad'); });
+    }, function () { btn.disabled = !app.token; $('create-status').textContent = ''; toast('Create failed: launcher unreachable.', 'bad'); });
   }
 
   function renderCreated(r) {
     var box = $('created');
     clear(box);
     var room = { id: r.id, seats: r.seats, openedHere: false };
-    var openBtn = h('button', { type: 'button', class: 'primary', text: '打开房间界面', 'data-needs-token': true });
+    var openBtn = h('button', { type: 'button', class: 'primary', text: 'Open Room UI', 'data-needs-token': true });
     openBtn.addEventListener('click', function () { openRoomUi(r.id, openBtn); });
-    box.appendChild(h('div', { class: 'card' }, [
-      h('h4', {}, ['房间 ' + r.id + ' 建好了', h('span', { class: 'badge info', text: r.preset || '无预设' })]),
-      h('p', { class: 'hint', text: '房间目录：' + r.roomDir }),
-      h('p', {}, ['下一步：把每张卡片里的那句话发给对应的 agent（它会读 JOIN.md 自己入席），然后打开房间界面，给任务并开始。']),
-      r.roomNotes && r.roomNotes.length ? h('div', { class: 'notice warn' }, [h('b', { text: '开始之前还要解决：' }), h('ul', {}, r.roomNotes.map(function (n) { return h('li', { text: n }); }))]) : null,
+    box.appendChild(h('div', { class: 'card created-card' }, [
+      h('h4', {}, ['Room ' + r.id + ' created', h('span', { class: 'badge info', text: r.preset || 'custom' })]),
+      h('div', { class: 'hint mono', text: r.roomDir }),
+      h('p', {}, ['Next step: copy each prompt below into its corresponding agent session (it will read JOIN.md and join automatically), then open the Room UI or assign a task below.']),
+      r.roomNotes && r.roomNotes.length ? h('div', { class: 'notice warn' }, [h('b', { text: 'Before starting, resolve:' }), h('ul', {}, r.roomNotes.map(function (n) { return h('li', { text: n }); }))]) : null,
     ].concat(r.seats.map(joinCard)).concat([
       h('div', { class: 'actions' }, [openBtn, h('span', { 'data-room-link': r.id })]),
       taskForm(room),
     ])));
     box.classList.remove('hidden');
     $('form-create').classList.add('hidden');
-    box.appendChild(h('div', { class: 'actions' }, [h('button', { type: 'button', text: '再建一个房间', onclick: function () { box.classList.add('hidden'); $('form-create').classList.remove('hidden'); $('room-id').value = ''; defaultSeats(); } })]));
+    box.appendChild(h('div', { class: 'actions' }, [h('button', { type: 'button', text: 'Create Another Room', onclick: function () { box.classList.add('hidden'); $('form-create').classList.remove('hidden'); $('room-id').value = ''; defaultSeats(); } })]));
     box.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   // ---- boot ----
   function boot() {
+    applyTheme(detectInitialTheme());
+    if ($('btn-theme')) {
+      $('btn-theme').addEventListener('click', function () {
+        applyTheme(app.theme === 'dark' ? 'light' : 'dark');
+      });
+    }
     setToken(takeTokenFromFragment());
     $('token-form').addEventListener('submit', function (ev) {
       ev.preventDefault();
@@ -612,24 +660,18 @@
     for (var i = 0; i < tabs.length; i++) tabs[i].addEventListener('click', function (ev) { showView(ev.currentTarget.getAttribute('data-view')); });
     $('btn-refresh').addEventListener('click', function () { app.lastRooms = ''; refreshRooms(); });
     $('btn-goto-create').addEventListener('click', function () { showView('create'); });
-    if ($('btn-lang')) {
-      $('btn-lang').addEventListener('click', function () {
-        app.lang = app.lang === 'en' ? 'zh-CN' : 'en';
-        applyLobbyLang();
-        renderRooms(true);
-      });
-    }
+
     getJson('/lobby/api/meta').then(function (res) {
-      if (res.status !== 200 || !res.json.ok) { toast('读启动器信息失败：' + errText(res), 'bad'); return; }
+      if (res.status !== 200 || !res.json.ok) { toast('Failed to load launcher metadata: ' + errText(res), 'bad'); return; }
       app.meta = res.json;
       if (res.json.defaultLang && $('room-lang')) $('room-lang').value = res.json.defaultLang;
       if (res.json.daemon) updateDaemonBadge(res.json.daemon);
-      $('hdr-root').lastChild.textContent = res.json.roomsRoot;
+      var rootBold = $('hdr-root') && $('hdr-root').querySelector('b');
+      if (rootBold) rootBold.textContent = res.json.roomsRoot;
       $('room-dir-hint').textContent = res.json.roomsRoot;
       fillSelect($('room-preset'), res.json.presets.map(function (p) { return { id: p.id, label: p.id }; }), 'implement-review');
       $('room-preset').addEventListener('change', function () {
         renderPresetDesc();
-        // Untouched seat rows follow the preset (simplified brings its built-in Pi seat).
         if (!app.seatsEdited) defaultSeats();
       });
       renderPresetDesc();
@@ -645,7 +687,7 @@
       $('form-create').addEventListener('submit', submitCreate);
       refreshRooms();
       connectLobbySse();
-    }, function () { toast('连不上启动器。', 'bad'); });
+    }, function () { toast('Cannot reach launcher service.', 'bad'); });
     app.pollTimer = setInterval(function () { if (app.view === 'rooms' && !document.hidden && !app.sseConnected) refreshRooms(); }, 3000);
   }
 

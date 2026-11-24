@@ -50,17 +50,17 @@ function inside(child, parent) {
 }
 
 async function prepareOut(outDir, root, replace) {
-  if (inside(root, outDir)) throw new ExportRefusal(`输出目录 ${outDir} 是仓库本身或包含仓库，拒绝。`);
+  if (inside(root, outDir)) throw new ExportRefusal(`Output directory ${outDir} is the repository itself or contains it; refused.`);
   if (inside(outDir, root) && !inside(outDir, path.join(root, 'dist', 'out'))) {
-    throw new ExportRefusal(`输出目录 ${outDir} 在仓库里但不在 dist/out/ 下：公开副本不能落进被跟踪的目录树。`);
+    throw new ExportRefusal(`Output directory ${outDir} is inside the repository but outside dist/out/: a public copy must not land in the tracked tree.`);
   }
   if (fs.existsSync(outDir)) {
-    if (!fs.statSync(outDir).isDirectory()) throw new ExportRefusal(`输出路径 ${outDir} 已存在且不是文件夹。`);
+    if (!fs.statSync(outDir).isDirectory()) throw new ExportRefusal(`Output path ${outDir} already exists and is not a directory.`);
     if (fs.readdirSync(outDir).length) {
-      if (!replace) throw new ExportRefusal(`输出目录 ${outDir} 不是空的；加 --replace 先删掉它（只删以前的导出，不删含 .git 的目录）。`);
-      if (fs.existsSync(path.join(outDir, '.git'))) throw new ExportRefusal(`输出目录 ${outDir} 里有 .git，拒绝删除。`);
+      if (!replace) throw new ExportRefusal(`Output directory ${outDir} is not empty; pass --replace to remove it first (removes prior exports only, never a directory containing .git).`);
+      if (fs.existsSync(path.join(outDir, '.git'))) throw new ExportRefusal(`Output directory ${outDir} contains .git; refusing to delete.`);
       await fs.promises.rm(outDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
-      if (fs.existsSync(outDir)) throw new Error(`没能删除 ${outDir}`);
+      if (fs.existsSync(outDir)) throw new Error(`Could not remove ${outDir}`);
     }
   }
   fs.mkdirSync(outDir, { recursive: true });
@@ -68,14 +68,14 @@ async function prepareOut(outDir, root, replace) {
 
 // files: forward-slash paths relative to root (default: what git tracks there).
 export async function exportPublic({ root = REPO_ROOT, outDir, files, deny = [], replace = false, log = () => {} } = {}) {
-  if (!outDir) throw new ExportRefusal('缺少输出目录。');
+  if (!outDir) throw new ExportRefusal('Missing output directory.');
   root = path.resolve(root);
   outDir = path.resolve(outDir);
   const listed = files || trackedFiles(root);
   const rels = listed.filter(isPublicPath).sort();
   const excluded = listed.length - rels.length;
   const missing = rels.filter((r) => !fs.existsSync(path.join(root, r)));
-  if (missing.length) throw new Error(`这些被跟踪的文件在工作区里不存在（先提交或恢复）：${missing.join(', ')}`);
+  if (missing.length) throw new Error(`Tracked files missing from the working tree (commit or restore them first): ${missing.join(', ')}`);
   await prepareOut(outDir, root, replace);
   let bytes = 0;
   for (const rel of rels) {
@@ -90,7 +90,7 @@ export async function exportPublic({ root = REPO_ROOT, outDir, files, deny = [],
   const scan = scanFiles(outDir, listTree(outDir), { deny });
   for (const l of formatHits(scan.hits)) log(l);
   const tail = `files=${scan.files} text=${scan.text} binary=${scan.binary} deny_literals=${deny.length}`;
-  log(scan.hits.length ? `PUBLIC_SCAN_FAIL hits=${scan.hits.length} ${tail}（副本留在原处供检查；内容没有被改写）` : `PUBLIC_SCAN_OK ${tail}`);
+  log(scan.hits.length ? `PUBLIC_SCAN_FAIL hits=${scan.hits.length} ${tail} (copy left in place for inspection; content was not modified)` : `PUBLIC_SCAN_OK ${tail}`);
   return { ok: scan.hits.length === 0, outDir, files: rels.length, bytes, excluded, hits: scan.hits, scanned: scan.files, text: scan.text, binary: scan.binary };
 }
 
@@ -99,10 +99,10 @@ export function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--replace') o.replace = true;
-    else if (a === '--deny-file') { o.denyFile = argv[++i]; if (!o.denyFile) throw new Error('--deny-file 需要一个文件'); }
-    else if (a === '--root') { o.root = argv[++i]; if (!o.root) throw new Error('--root 需要一个目录'); }
+    else if (a === '--deny-file') { o.denyFile = argv[++i]; if (!o.denyFile) throw new Error('--deny-file requires a file path'); }
+    else if (a === '--root') { o.root = argv[++i]; if (!o.root) throw new Error('--root requires a directory path'); }
     else if (a === '--help' || a === '-h') o.help = true;
-    else if (a.startsWith('--')) throw new Error(`未知参数 ${a}`);
+    else if (a.startsWith('--')) throw new Error(`Unknown option: ${a}`);
     else o.positional.push(a);
   }
   return o;
@@ -114,12 +114,12 @@ function isMain() {
 }
 
 if (isMain()) {
-  const usage = '用法：node dist/export-public.mjs <outDir> [--replace] [--deny-file <文件>] [--root <仓库目录>]';
+  const usage = 'Usage: node dist/export-public.mjs <outDir> [--replace] [--deny-file <file>] [--root <repoDir>]';
   let o;
   try { o = parseArgs(process.argv.slice(2)); } catch (e) { process.stderr.write(`ERROR ${e.message}\n${usage}\n`); process.exit(9); }
   if (o.help || o.positional.length !== 1) { process.stdout.write(`${usage}\n`); process.exit(o.help ? 0 : 9); }
   let deny;
-  try { deny = readDenyFile(o.denyFile); } catch (e) { process.stderr.write(`ERROR 读不了 deny 文件：${e.message}\n`); process.exit(9); }
+  try { deny = readDenyFile(o.denyFile); } catch (e) { process.stderr.write(`ERROR could not read deny file: ${e.message}\n`); process.exit(9); }
   exportPublic({ root: o.root || REPO_ROOT, outDir: o.positional[0], replace: o.replace, deny, log: (l) => process.stdout.write(`${l}\n`) })
     .then((r) => process.exit(r.ok ? 0 : 1))
     .catch((e) => {

@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { scenario, invariants, runs } from '../cases/25-disclose-unapproved.test.mjs';
 
-test('#25 变异 no-disclose-gate：披露请求不经批准就执行，用例变红', async () => {
+test('#25 mutation no-disclose-gate: disclosure request executes without approval and the case fails', async () => {
   const r = await scenario({ mutate: 'no-disclose-gate' });
   try {
     assert.deepEqual(r.sim.state().mutate, ['no-disclose-gate']);

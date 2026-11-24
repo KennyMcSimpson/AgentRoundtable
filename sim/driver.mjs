@@ -313,12 +313,12 @@ export const IR_SEATS = Object.freeze([
 
 // implement-review round 1 up to the lead's summary turn: B works and freezes `paths`, A opens, B
 // reports. Returns {sha, summaryAttempt}; the summary attempt is open and held by A.
-export async function runToSummary(sim, { task = '实现 app.mjs', paths = ['src', 'README.md'], baseline = 'none' } = {}) {
+export async function runToSummary(sim, { task = 'Implement app.mjs', paths = ['src', 'README.md'], baseline = 'none' } = {}) {
   const { createScriptedSeat } = await import('./scripted-seat.mjs');
   await sim.admin({ cmd: 'task', text: task });
   await sim.admin({ cmd: 'start' });
-  const B = createScriptedSeat({ seatId: 'B', script: [{ wait: {} }, { artifacts: { paths, baseline } }, { submit: 'B：实现完成' }, { wait: {} }, { submit: 'B：汇报完毕' }] });
-  const A = createScriptedSeat({ seatId: 'A', script: [{ wait: {} }, { submit: 'A：开题，B 请汇报' }, { until: (s) => !!s.holding('A') }] });
+  const B = createScriptedSeat({ seatId: 'B', script: [{ wait: {} }, { artifacts: { paths, baseline } }, { submit: 'B: implementation complete' }, { wait: {} }, { submit: 'B: report complete' }] });
+  const A = createScriptedSeat({ seatId: 'A', script: [{ wait: {} }, { submit: 'A: opening the meeting, B please report' }, { until: (s) => !!s.holding('A') }] });
   await sim.run([A, B]);
   const summaryAttempt = sim.holding('A');
   if (!summaryAttempt || sim.svc.state.attemptLog[summaryAttempt].phase !== 'summary') throw new Error('runToSummary: A does not hold a summary attempt');

@@ -1,4 +1,4 @@
-// Bilingual i18n (zh-CN default + en): templates, lint, surface fragments, packets, farewells,
+// Pure English i18n: templates, lint, surface fragments, packets, farewells,
 // JOIN.md, structured follow-ups, assign draft `acceptance:` syntax and end-to-end English room.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -23,22 +23,30 @@ function base() {
   return b;
 }
 
-test('normalizeLang and resolveLang honour explicit > room.lang > ROOM_LANG > zh-CN', () => {
-  assert.deepEqual(SUPPORTED_LANGS, ['zh-CN', 'en']);
+test('normalizeLang and resolveLang default to pure English (en)', () => {
+  assert.equal(DEFAULT_LANG, 'en');
+  assert.deepEqual(SUPPORTED_LANGS, ['en']);
+  assert.equal(normalizeLang('en'), 'en');
   assert.equal(normalizeLang('en-US'), 'en');
-  assert.equal(normalizeLang('zh_CN'), 'zh-CN');
+  assert.equal(normalizeLang('en_GB'), 'en');
   assert.equal(normalizeLang('fr'), null);
-  assert.equal(resolveLang({ lang: 'en', room: { lang: 'zh-CN' }, env: { ROOM_LANG: 'zh-CN' } }), 'en');
-  assert.equal(resolveLang({ room: { lang: 'en' }, env: { ROOM_LANG: 'zh-CN' } }), 'en');
-  assert.equal(resolveLang({ env: { ROOM_LANG: 'en' } }), 'en');
-  assert.equal(resolveLang({ env: {} }), DEFAULT_LANG);
+  assert.equal(normalizeLang('zh-CN'), null);
+  assert.equal(normalizeLang(''), null);
+  assert.equal(normalizeLang(null), null);
+  assert.equal(resolveLang({ lang: 'en', room: { lang: 'fr' }, env: { ROOM_LANG: 'de' } }), 'en');
+  assert.equal(resolveLang({ room: { lang: 'en' }, env: { ROOM_LANG: 'de' } }), 'en');
+  assert.equal(resolveLang({ env: { ROOM_LANG: 'en-GB' } }), 'en');
+  assert.equal(resolveLang({ env: {} }), 'en');
+  assert.equal(resolveLang({ lang: 'fr', room: { lang: 'de' }, env: { ROOM_LANG: 'es' } }), 'en');
 });
 
-test('all 13 English templates load, pass lint, and match en surface fragments without CLI leaks', () => {
+test('all 13 canonical English templates under lib/templates/*.md load, pass lint, and match en surface fragments without CLI leaks', () => {
   const en = loadTemplates({ lang: 'en', force: true });
-  const zh = loadTemplates({ lang: 'zh-CN', force: true });
+  const def = loadTemplates({ force: true });
   assert.equal(en.lang, 'en');
-  assert.notEqual(en.templateHash, zh.templateHash);
+  assert.equal(def.lang, 'en');
+  assert.equal(en.templateHash, def.templateHash);
+  assert.ok(en.dir.endsWith(path.join('lib', 'templates')), `expected lib/templates dir, got ${en.dir}`);
   assert.deepEqual(Object.keys(en.templates).sort(), [...TEMPLATE_NAMES].sort());
   // Negative control on English lint: missing "not a user instruction" must fail.
   assert.ok(lintTemplate('authority=none block without rule', { requireAuthorityRule: true, lang: 'en' }).some((e) => /not a user instruction/.test(e)));
@@ -46,12 +54,13 @@ test('all 13 English templates load, pass lint, and match en surface fragments w
   // Surface substitution on every English template for tool and hosted leaves no {{roomCmd}} / {{seatDir}}.
   for (const kind of ['tool', 'hosted']) {
     assert.ok(SURFACE_FRAGMENTS_BY_LANG.en[kind]);
-    assert.ok(surfaceHashOf(kind, 'en') && surfaceHashOf(kind, 'en') !== surfaceHashOf(kind, 'zh-CN'));
+    assert.match(surfaceHashOf(kind, 'en'), /^[0-9a-f]{64}$/);
     for (const name of TEMPLATE_NAMES) {
       const out = surfaceText(name, en.templates[name], kind, 'en');
       assert.doesNotMatch(out, /\{\{\s*(roomCmd|seatDir)\s*\}\}/, `${kind}/${name} leaked CLI placeholder`);
     }
   }
+  assert.notEqual(surfaceHashOf('tool', 'en'), surfaceHashOf('hosted', 'en'));
   assert.match(surfaceLine({ kind: 'tool', tool: 'Room' }, 'turnSubmit', 'en'), /call room tool submit/i);
 });
 

@@ -148,14 +148,14 @@ export function main(argv, { out = (l) => process.stdout.write(`${l}\n`) } = {})
   if (args.before && args.after) {
     before = readSnapshot(args.before); after = readSnapshot(args.after); raw = [args.before, args.after];
   } else if (args.save) {
-    if (!args._.length) { out('FAIL memory-diff: --save 需要至少一个 <target>'); return 1; }
+    if (!args._.length) { out('FAIL memory-diff: --save requires at least one <target>'); return 1; }
     const snap = snapshotTargets(args._, { label: 'manual' });
     const saveAbs = path.resolve(args.save);
     const dir = path.dirname(saveAbs);
     const guard = createGuard({ allowed: [dir], logPath: path.join(dir, 'contract-write-log.jsonl'), who: 'contract' });
     guard.mkdir(dir);
     guard.writeFile(saveAbs, JSON.stringify(snap, null, 1));
-    out(`INFO memory-diff: 快照 ${snap.targets.length} 个目标，${countEntries(snap)} 条条目（条目 = 相对路径 + 类型 + 大小 + sha256，不含 mtime）`);
+    out(`INFO memory-diff: snapshotted ${snap.targets.length} targets, ${countEntries(snap)} entries (entry = relative path + kind + size + sha256, excluding mtime)`);
     out(`RAW ${saveAbs}`);
     return 0;
   } else if (args.against) {
@@ -164,16 +164,16 @@ export function main(argv, { out = (l) => process.stdout.write(`${l}\n`) } = {})
     after = snapshotTargets(targets, { label: 'now' });
     raw = [args.against];
   } else {
-    out('FAIL memory-diff: 用法 memory-diff.mjs <target>... --save <file> | [<target>...] --against <file> | --before <a> --after <b>');
+    out('FAIL memory-diff: usage: memory-diff.mjs <target>... --save <file> | [<target>...] --against <file> | --before <a> --after <b>');
     return 1;
   }
   const diffs = diffSnapshots(before, after);
   const nTargets = after.targets.length;
   const nEntries = countEntries(after);
   if (diffs.length === 0) {
-    out(`PASS memory-diff: ${nTargets} 个目标、${nEntries} 条条目，在条目级 sha256 比对（不按 mtime）下未观测到差异`);
+    out(`PASS memory-diff: ${nTargets} targets, ${nEntries} entries; differences were not observed under entry-level sha256 comparison (excluding mtime)`);
   } else {
-    out(`FAIL memory-diff: ${nTargets} 个目标、${nEntries} 条条目，在条目级 sha256 比对下观测到 ${diffs.length} 处条目差异`);
+    out(`FAIL memory-diff: ${nTargets} targets, ${nEntries} entries; ${diffs.length} entry differences were observed under entry-level sha256 comparison`);
     for (const d of diffs) out(`  ${formatDiff(d)}`);
   }
   for (const r of raw) out(`RAW ${path.resolve(r)}`);

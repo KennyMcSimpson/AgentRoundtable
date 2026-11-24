@@ -119,7 +119,7 @@ export function runCli(metaUrl, main) {
   Promise.resolve()
     .then(() => main(process.argv.slice(2)))
     .then((code) => process.exit(code === 0 ? 0 : 1), (e) => {
-      process.stdout.write(`FAIL script: ${path.basename(fileURLToPath(metaUrl))} 异常退出：${e && e.message ? e.message : e}\n`);
+      process.stdout.write(`FAIL script: ${path.basename(fileURLToPath(metaUrl))} exited abnormally: ${e && e.message ? e.message : e}\n`);
       process.stderr.write(`ERROR ${e && e.stack ? e.stack : e}\n`);
       process.exit(1);
     });

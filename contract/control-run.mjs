@@ -76,7 +76,7 @@ export function defaultTargets(env = process.env, home = os.homedir()) {
   return list;
 }
 
-export const SESSION_STORAGE_NOTE = '会话存储（~/.claude/projects/*/*.jsonl、$CODEX_HOME/sessions 与其 sqlite 状态库）不比对：本机其他线程在对照跑期间持续写入它，条目差异量的是它们的活动而不是房间的；该范围由 write-log（check-writes.mjs）与审计器的打开文件集合覆盖。';
+export const SESSION_STORAGE_NOTE = 'Session storage (~/.claude/projects/*/*.jsonl, $CODEX_HOME/sessions, and its sqlite state database) is not compared: other threads on this machine continue appending to it during the control run, so entry diffs there would measure their activity rather than the room\'s; that scope is covered by the write-log (check-writes.mjs) and the auditor\'s opened-file set.';
 
 function parseCli(argv) {
   const res = { _: [], dir: [], extraDir: [], seatsRoot: null, runDir: null, baseline: true };
@@ -139,8 +139,8 @@ export async function main(argv, { out } = {}) {
   ];
   const writeJson = (name, obj) => { const p = path.join(runDir, name); guard.writeFile(p, JSON.stringify(obj, null, 1)); return p; };
 
-  rep.info(`control-run(targets): 比对目标 ${targets.length} 个`);
-  for (const t of targets) rep.detail(`[${t.group}] ${t.path}${fs.existsSync(t.path) ? '' : '（不存在，记为 absent）'}`);
+  rep.info(`control-run(targets): ${targets.length} comparison targets`);
+  for (const t of targets) rep.detail(`[${t.group}] ${t.path}${fs.existsSync(t.path) ? '' : ' (missing, recorded as absent)'}`);
   rep.info(`control-run(scope): ${SESSION_STORAGE_NOTE}`);
 
   const cmdLog = path.join(runDir, 'control-run-commands.log');
@@ -173,7 +173,7 @@ export async function main(argv, { out } = {}) {
       const a = attemptOf(r.out);
       if (r.code === 0 && a) return { attempt: a, out: r.out };
       if (/^(ROOM_CLOSED|LEFT)/m.test(r.out)) break;
-      if (serviceResult) { last = `${firstLine(r.out)}（房间服务已退出，exit ${serviceResult.code}）`; break; }
+      if (serviceResult) { last = `${firstLine(r.out)} (room service exited with code ${serviceResult.code})`; break; }
       await sleep(250);
     }
     return { attempt: null, out: last };
@@ -211,23 +211,23 @@ export async function main(argv, { out } = {}) {
     if (servicePid) roomPids.add(servicePid);
     const ready = await until(async () => { const s = await seatCmd('B', 'status'); return s.code === 0 && /^STATUS/m.test(s.out); }, 15000, 300);
     if (!step('service started', ready && servicePid, `pid ${servicePid}`)) return;
-    r = await admin('task', ['--text', '对照跑：B 把 hello.txt 写成 hello room；A 开题并审查。']);
+    r = await admin('task', ['--text', 'Control run: B writes "hello room" to hello.txt; A opens and reviews.']);
     if (!step('admin task queued', r.code === 0, firstLine(r.out))) return;
     r = await admin('start', ['--order', 'A,B,A']);
     if (!step('admin start queued', r.code === 0, firstLine(r.out))) return;
     let w = await waitTurn('A');
     if (!step('A wait -> TURN', w.attempt, firstLine(w.out))) return;
-    r = await seatCmd('A', 'submit', ['--attempt', w.attempt, '--file', writeTmp('cr-a1.md', '开题：B 请把 hello.txt 写成 hello room。验收：cat hello.txt。')]);
+    r = await seatCmd('A', 'submit', ['--attempt', w.attempt, '--file', writeTmp('cr-a1.md', 'Opening: B, please write "hello room" to hello.txt. Acceptance: cat hello.txt.')]);
     if (!step('A submit -> ACCEPTED', r.code === 0 && /^ACCEPTED/m.test(r.out), firstLine(r.out))) return;
     w = await waitTurn('B');
     if (!step('B wait -> TURN', w.attempt, firstLine(w.out))) return;
     agentGuard.writeFile(path.join(cwdB, 'hello.txt'), 'hello room\n'); // the executor's own work in its own cwd
     agentWrites.B.push('hello.txt');
-    r = await seatCmd('B', 'submit', ['--attempt', w.attempt, '--file', writeTmp('cr-b1.md', '做完了：hello.txt 已写成 hello room。')]);
+    r = await seatCmd('B', 'submit', ['--attempt', w.attempt, '--file', writeTmp('cr-b1.md', 'Done: hello.txt has been written with hello room.')]);
     if (!step('B submit -> ACCEPTED', r.code === 0 && /^ACCEPTED/m.test(r.out), firstLine(r.out))) return;
     w = await waitTurn('A');
     if (!step('A wait (review) -> TURN', w.attempt, firstLine(w.out))) return;
-    r = await seatCmd('A', 'submit', ['--attempt', w.attempt, '--file', writeTmp('cr-a2.md', '审查：hello.txt 内容正确。\nVERDICT: pass')]);
+    r = await seatCmd('A', 'submit', ['--attempt', w.attempt, '--file', writeTmp('cr-a2.md', 'Review: hello.txt content is correct.\nVERDICT: pass')]);
     if (!step('A review submit -> ACCEPTED', r.code === 0 && /^ACCEPTED/m.test(r.out), firstLine(r.out))) return;
     const done = await until(() => events().some((e) => e.type === 'round_done'), 15000);
     const accepted = events().filter((e) => e.type === 'submission_accepted').length;
@@ -257,8 +257,8 @@ export async function main(argv, { out } = {}) {
   guard.writeFile(fAdminLog, adminLog.out);
   const roundOk = steps.length > 0 && steps.every((s) => s.ok);
   const durationMs = Date.now() - t0;
-  if (roundOk) rep.pass(`control-run(round): 脚本席位经 CLI 跑完一整场 A,B,A（${steps.length} 步，${(durationMs / 1000).toFixed(1)} s），期间未启动任何 agent`);
-  else rep.fail(`control-run(round): 脚本场次未完成 — ${steps.filter((s) => !s.ok).map((s) => `${s.name}${s.detail ? ` (${s.detail.slice(0, 160)})` : ''}`).join('; ')}`);
+  if (roundOk) rep.pass(`control-run(round): scripted seats completed a full A,B,A round via CLI (${steps.length} steps, ${(durationMs / 1000).toFixed(1)} s); agent launches were not observed during the round`);
+  else rep.fail(`control-run(round): scripted round did not complete — ${steps.filter((s) => !s.ok).map((s) => `${s.name}${s.detail ? ` (${s.detail.slice(0, 160)})` : ''}`).join('; ')}`);
 
   // ---- after ----
   const pidsAfter = await snapshotProcesses({ label: 'after' });
@@ -271,15 +271,15 @@ export async function main(argv, { out } = {}) {
   let excluded = []; let judged = diffs; let fBaseline = null; let pidsBaseline = null; let fPidsBaseline = null;
   if (args.baseline) {
     const waitMs = Math.max(durationMs, 2000);
-    rep.info(`control-run(baseline): 再等 ${(waitMs / 1000).toFixed(1)} s（房间已停止）后第三次快照，基线窗口内自行变化的条目将被排除`);
+    rep.info(`control-run(baseline): waiting another ${(waitMs / 1000).toFixed(1)} s (room stopped) before taking a third snapshot; entries that change on their own during the baseline window will be excluded`);
     await sleep(waitMs);
     const snapBaseline = snapshotTargets(targets, { label: 'baseline' });
     pidsBaseline = await snapshotProcesses({ label: 'baseline' });
     fPidsBaseline = writeJson('pids-baseline.json', pidsBaseline);
     fBaseline = writeJson('snapshot-baseline.json', snapBaseline);
     ({ judged, excluded } = applyBaseline(diffs, diffSnapshots(snapAfter, snapBaseline)));
-    if (excluded.length) { rep.info(`control-run(baseline): 基线窗口内自行变化、已排除的条目 ${excluded.length} 处`); for (const d of excluded) rep.detail(formatDiff(d)); }
-  } else rep.info('control-run(baseline): 已用 --no-baseline 关闭基线窗口，所有差异都参与判定');
+    if (excluded.length) { rep.info(`control-run(baseline): excluded ${excluded.length} entries that changed on their own during the baseline window`); for (const d of excluded) rep.detail(formatDiff(d)); }
+  } else rep.info('control-run(baseline): baseline window disabled via --no-baseline; all differences will be judged');
 
   // ---- verdict per group ----
   const groups = [...new Set(targets.map((t) => t.group))];
@@ -288,16 +288,16 @@ export async function main(argv, { out } = {}) {
     const present = gTargets.filter((t) => t.exists).length;
     const n = gTargets.reduce((s, t) => s + t.entries.length, 0);
     const gDiffs = judged.filter((d) => d.group === g);
-    if (gDiffs.length === 0) rep.pass(`control-run(${g}): ${gTargets.length} 个目标（${present} 个存在）、${n} 条条目，在对照跑（不开 agent、脚本席位整场）的条目级 sha256 比对下未观测到差异`);
-    else { rep.fail(`control-run(${g}): ${gTargets.length} 个目标、${n} 条条目，在条目级 sha256 比对下观测到 ${gDiffs.length} 处条目差异`); for (const d of gDiffs) rep.detail(formatDiff(d)); }
+    if (gDiffs.length === 0) rep.pass(`control-run(${g}): ${gTargets.length} targets (${present} present), ${n} entries; differences were not observed under entry-level sha256 comparison across the scripted control run (no agent launched)`);
+    else { rep.fail(`control-run(${g}): ${gTargets.length} targets, ${n} entries; ${gDiffs.length} entry differences were observed under entry-level sha256 comparison`); for (const d of gDiffs) rep.detail(formatDiff(d)); }
   }
 
   // ---- seat working directories: only the outbox and the scripted agent's own files ----
   for (const [id, cwd] of [['A', cwdA], ['B', cwdB]]) {
     const rel = listRel(cwd);
     const extra = unexpectedWorkdirEntries(rel, agentWrites[id]);
-    if (extra.length === 0) rep.pass(`control-run(workdir ${id}): ${rel.length} 个条目，在目录列举方法下未观测到发件箱与脚本 agent 自己写的文件（${agentWrites[id].join(',') || '无'}）之外的条目（P3 由 ProcMon 复核写句柄）`);
-    else { rep.fail(`control-run(workdir ${id}): 在目录列举方法下观测到发件箱之外的条目 ${extra.length} 个`); for (const p of extra) rep.detail(p); }
+    if (extra.length === 0) rep.pass(`control-run(workdir ${id}): ${rel.length} entries; entries outside the outbox and the scripted agent's own files (${agentWrites[id].join(',') || 'none'}) were not observed under directory listing (write handles verified by P3 ProcMon)`);
+    else { rep.fail(`control-run(workdir ${id}): ${extra.length} unexpected entries outside the outbox were observed under directory listing`); for (const p of extra) rep.detail(p); }
   }
 
   // ---- processes ----

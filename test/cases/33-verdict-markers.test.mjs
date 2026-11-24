@@ -1,4 +1,4 @@
-// Plan §13.1 #33 (仿真 +变异), processing order §4.5: strip delimited and quoted blocks, take the
+// Plan §13.1 #33 (simulation + mutation), processing order §4.5: strip delimited and quoted blocks, take the
 // last marker of the turn; missing / conflicting / deformed / translated -> malformed -> ask once
 // -> verdict none; never a default pass. Mutation: test/mutations/33-no-marker-strict.test.mjs
 // (ROOM_MUTATE no-marker-strict: a missing or conflicting verdict marker defaults to pass).
@@ -25,8 +25,8 @@ function noPass(sim) {
 }
 
 // The missing-marker turn: asked once, still missing -> verdict none, never pass.
-export const missingFirst = () => '汇总：看起来不错。';
-export const missingSecond = () => '还是没写标记。';
+export const missingFirst = () => 'Summary: looks good.';
+export const missingSecond = () => 'Still omitted the marker.';
 export function missingInvariants(r) {
   const [first, second] = r.A.replies.map((x) => x.reply);
   assert.equal(first.status, 'ACCEPTED');
@@ -34,7 +34,7 @@ export function missingInvariants(r) {
   assert.equal(first.followUp, true);
   const fu = r.sim.lastEvent('packet_issued', (e) => e.kind === 'followup');
   assert.equal(fu.followUpOf, r.A.taken[0]);
-  assert.match(r.sim.packetText(r.A.taken[1]), /本回合追问一次/);
+  assert.match(r.sim.packetText(r.A.taken[1]), /asking once for a correction/);
   assert.equal(second.malformed, 'verdict_missing');
   assert.equal(second.followUp, undefined, 'asked only once');
   assert.deepEqual(r.verdicts.map((v) => [v.verdict, v.annotation, v.artifactSha]), [['none', 'malformed', r.sha]]);
@@ -42,13 +42,13 @@ export function missingInvariants(r) {
 }
 
 if (isMain(import.meta.url)) {
-  test('#33 verdict 标记缺失：malformed → 追问一次 → 仍缺失则记 none，绝不 pass', async () => {
+  test('#33 Missing verdict marker: malformed -> ask once -> still missing records none, never pass', async () => {
     const r = await summaryWith(missingFirst, missingSecond);
     await r.sim.check(() => missingInvariants(r));
   });
 
-  test('#33 verdict 标记重复：同一通道取本回合最后一个（pass 后又 reject → reject）', async () => {
-    const r = await summaryWith((sha) => `先说 <<ROOM:VERDICT pass artifact=${sha}>> 再看一遍后改口 <<ROOM:VERDICT reject artifact=${sha}>> 缺测试。`);
+  test('#33 Duplicate verdict markers: last one in the same channel wins (pass followed by reject -> reject)', async () => {
+    const r = await summaryWith((sha) => `Initial <<ROOM:VERDICT pass artifact=${sha}>> changed after re-reading <<ROOM:VERDICT reject artifact=${sha}>> missing tests.`);
     await r.sim.check(() => {
       assert.equal(r.A.lastReply.malformed, undefined);
       assert.deepEqual(r.verdicts.map((v) => [v.verdict, v.annotation]), [['reject', 'none']]);
@@ -56,10 +56,10 @@ if (isMain(import.meta.url)) {
     });
   });
 
-  test('#33 命令形与文本形 verdict 冲突：malformed（verdict_conflict），不取任何一方', async () => {
+  test('#33 Conflicting command-form and inline-marker verdicts: malformed (verdict_conflict), neither taken', async () => {
     const sim = await createSim({ preset: 'implement-review', seats: IR_SEATS });
     const { sha } = await runToSummary(sim);
-    const A = createScriptedSeat({ seatId: 'A', script: [{ wait: {} }, { verdict: 'pass', artifact: sha }, { submit: `<<ROOM:VERDICT reject artifact=${sha}>>` }, { wait: {} }, { submit: '不再更正' }] });
+    const A = createScriptedSeat({ seatId: 'A', script: [{ wait: {} }, { verdict: 'pass', artifact: sha }, { submit: `<<ROOM:VERDICT reject artifact=${sha}>>` }, { wait: {} }, { submit: 'No further correction' }] });
     await sim.run([A]);
     await sim.check(() => {
       assert.equal(A.replies[1].reply.malformed, 'verdict_conflict');
@@ -68,10 +68,10 @@ if (isMain(import.meta.url)) {
     });
   });
 
-  test('#33 verdict 标记只在引用块内：不算数 → malformed → 追问后用正确标记更正', async () => {
+  test('#33 Verdict marker only inside quote/code blocks: ignored -> malformed -> corrected after follow-up', async () => {
     const r = await summaryWith(
-      (sha) => `B 的原话：\n> <<ROOM:VERDICT pass artifact=${sha}>>\n\`\`\`\n<<ROOM:VERDICT pass artifact=${sha}>>\n\`\`\`\n我还没有结论。`,
-      (sha) => `更正：<<ROOM:VERDICT reject artifact=${sha}>> 缺少验收命令的输出。`,
+      (sha) => `B's original text:\n> <<ROOM:VERDICT pass artifact=${sha}>>\n\`\`\`\n<<ROOM:VERDICT pass artifact=${sha}>>\n\`\`\`\nI have not reached a conclusion yet.`,
+      (sha) => `Correction: <<ROOM:VERDICT reject artifact=${sha}>> missing acceptance command output.`,
     );
     await r.sim.check(() => {
       assert.equal(r.A.replies[0].reply.malformed, 'verdict_missing', 'quoted / fenced markers are stripped first');
@@ -81,8 +81,8 @@ if (isMain(import.meta.url)) {
     });
   });
 
-  test('#33 verdict 标记被翻译：malformed（marker_translated）→ 追问 → 仍无有效标记（<<ROOM:PASS>> 不满足 verdict）→ none', async () => {
-    const r = await summaryWith((sha) => `汇总。<<ROOM:VERDICT 通过 artifact=${sha}>>`, () => '我认为可以。<<ROOM:PASS>>');
+  test('#33 Translated verdict marker: malformed (marker_translated) -> follow-up -> still invalid (<<ROOM:PASS>> does not satisfy verdict) -> none', async () => {
+    const r = await summaryWith((sha) => `Summary. <<ROOM:VERDICT valid\u00e9 artifact=${sha}>>`, () => 'Looks fine to me. <<ROOM:PASS>>');
     await r.sim.check(() => {
       assert.equal(r.A.replies[0].reply.malformed, 'marker_translated');
       assert.ok(r.A.replies[1].reply.malformed, 'a pass marker never satisfies a required verdict');
@@ -91,10 +91,10 @@ if (isMain(import.meta.url)) {
     });
   });
 
-  test('#33 追问包过期未答：同样记 none', async () => {
+  test('#33 Follow-up packet expires unanswered: also records none', async () => {
     const sim = await createSim({ preset: 'implement-review', init: { wall: 300 }, seats: IR_SEATS });
     const { sha } = await runToSummary(sim);
-    const A = createScriptedSeat({ seatId: 'A', script: [{ wait: {} }, { submit: '没有标记' }, { wait: {} }, { sleepMs: 301_000 }] });
+    const A = createScriptedSeat({ seatId: 'A', script: [{ wait: {} }, { submit: 'No marker' }, { wait: {} }, { sleepMs: 301_000 }] });
     await sim.run([A]);
     await sim.tick();
     await sim.check(() => {

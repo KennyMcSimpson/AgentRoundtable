@@ -1,23 +1,23 @@
-// Plan §13.1 #34 (仿真), §7.4: quotes are checked verbatim against the quoted seq.
+// Plan §13.1 #34 (simulation), §7.4: quotes are checked verbatim against the quoted seq.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createSim } from '../../sim/driver.mjs';
 import { createScriptedSeat } from '../../sim/scripted-seat.mjs';
 
-test('#34 引用片段被改一个字：被标出（verified=false, not_verbatim）；原样引用 verified=true', async () => {
+test('#34 Quote with an altered word: flagged (verified=false, not_verbatim); verbatim quote verified=true', async () => {
   const sim = await createSim({ preset: 'discussion', seats: [{ seatId: 'A', role: 'lead' }, { seatId: 'B', role: 'participant' }] });
   await sim.check(async () => {
-    await sim.admin({ cmd: 'task', text: '引文校验' });
+    await sim.admin({ cmd: 'task', text: 'Quote verification' });
     await sim.admin({ cmd: 'start', order: ['A', 'B'] });
-    const A = createScriptedSeat({ seatId: 'A', script: [{ wait: {} }, { submit: '我们决定先做灰度发布，再全量上线。' }, { wait: {} }, { submit: '汇总' }] });
+    const A = createScriptedSeat({ seatId: 'A', script: [{ wait: {} }, { submit: 'We decided to do a canary rollout first, then a full launch.' }, { wait: {} }, { submit: 'Summary' }] });
     const B = createScriptedSeat({
       seatId: 'B',
       script: [
         { wait: {} },
-        { quote: { seq: 2, text: '先做灰度发布，再全量上线' } },
-        { quote: { seq: 2, text: '先做灰度发布，再全部上线' } },
-        { quote: { seq: 9, text: '不存在的消息' } },
-        { submit: '<<ROOM:QUOTE seq=2>>我们决定先做灰色发布<<ROOM:END>> 文本形的改字引用' },
+        { quote: { seq: 2, text: 'canary rollout first, then a full launch' } },
+        { quote: { seq: 2, text: 'canary rollout first, then a complete launch' } },
+        { quote: { seq: 9, text: 'nonexistent message' } },
+        { submit: '<<ROOM:QUOTE seq=2>>We decided to do a gray rollout<<ROOM:END>> altered inline quote' },
       ],
     });
     await sim.run([A, B]);

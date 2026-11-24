@@ -175,23 +175,33 @@ test('H4 + L1 + M5: app.js dedups SSE+poll, preserves seat named toString, handl
     close() { this.closed = true; }
   }
   const streamItems = [];
-  const dummyEl = (id) => ({
-    id: id || '', textContent: '', className: '', _html: '', disabled: false, title: '', value: '', placeholder: '',
-    set innerHTML(v) { this._html = v; if (id === 'stream' && v === '') streamItems.length = 0; },
-    get innerHTML() { return this._html; },
-    addEventListener() {}, append() {}, appendChild(c) { if (id === 'stream') streamItems.push(c); },
-    removeChild() {}, replaceWith() {}, querySelector: () => dummyEl(), querySelectorAll: () => [],
-    classList: { toggle() {} }, getAttribute: () => '',
-  });
+  const dummyEl = (id) => {
+    const children = [];
+    return {
+      id: id || '', textContent: '', className: '', disabled: false, title: '', value: '', placeholder: '',
+      dataset: {},
+      get firstChild() { return id === 'stream' ? (streamItems[0] || null) : (children[0] || null); },
+      addEventListener() {},
+      append(...nodes) { if (id === 'stream') streamItems.push(...nodes); else children.push(...nodes); },
+      appendChild(c) { if (id === 'stream') streamItems.push(c); else children.push(c); return c; },
+      removeChild(c) {
+        const arr = id === 'stream' ? streamItems : children;
+        const idx = arr.indexOf(c);
+        if (idx >= 0) arr.splice(idx, 1);
+      },
+      replaceWith() {}, querySelector: () => dummyEl(), querySelectorAll: () => [],
+      classList: { toggle() {} }, setAttribute() {}, getAttribute: () => '',
+    };
+  };
   const doc = {
     readyState: 'complete',
-    documentElement: { lang: 'zh-CN' },
+    documentElement: { lang: 'en', dataset: {}, setAttribute() {} },
     title: '',
     addEventListener() {},
     getElementById: (id) => dummyEl(id),
     querySelector: () => dummyEl(),
     querySelectorAll: () => [],
-    createElement: (tag) => ({ nodeType: 1, tagName: tag, className: '', textContent: '', append() {}, appendChild() {}, setAttribute() {}, addEventListener() {}, classList: { toggle() {} } }),
+    createElement: (tag) => ({ nodeType: 1, tagName: tag, className: '', textContent: '', append() {}, appendChild() {}, removeChild() {}, setAttribute() {}, addEventListener() {}, classList: { toggle() {} } }),
     createTextNode: (t) => ({ nodeType: 3, textContent: t }),
   };
   const ev1 = { seq: 1, ts: '2026-11-24T00:00:01Z', type: 'user_message_queued', msgSeq: 2, text: 'UNIQUE_HELLO' };
@@ -305,13 +315,13 @@ test('M1 + L2: lobby blocks mid-round POST /lobby/api/task and normalizes invali
     seats: [{ seatId: 'A', role: 'lead', agent: 'generic', cwd: cwdA }],
   } });
   assert.equal(c.status, 200);
-  // Plant unsupported room.lang -> listRooms must normalize to 'zh-CN', never null
+  // Plant unsupported room.lang -> listRooms must normalize to 'en', never null
   const roomFile = path.join(roomsRoot, 'r1', F.room);
   const roomObj = JSON.parse(fs.readFileSync(roomFile, 'utf8'));
   roomObj.lang = 'fr';
   fs.writeFileSync(roomFile, JSON.stringify(roomObj, null, 2));
   const list = await req(lobby.port, { pathname: '/lobby/api/rooms' });
-  assert.equal(list.json.rooms[0].lang, 'zh-CN');
+  assert.equal(list.json.rooms[0].lang, 'en');
 
   const op = await req(lobby.port, { method: 'POST', pathname: '/lobby/api/open', body: { token: lobby.token, id: 'r1' } });
   assert.equal(op.status, 200);

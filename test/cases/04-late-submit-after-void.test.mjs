@@ -1,4 +1,4 @@
-// Plan §13.1 #4 (仿真 + 真实 +变异; this file is the simulation layer). Mutation:
+// Plan §13.1 #4 (simulation + real + mutation; this file is the simulation layer). Mutation:
 // test/mutations/04-no-attempt-check.test.mjs. The plan names the record late_submit_dropped; the
 // service records it as submission_rejected with reason STALE_ATTEMPT (INTERFACES §4 has no
 // late_submit_dropped type).
@@ -14,7 +14,7 @@ export async function scenario({ mutate } = {}) {
     preset: 'discussion', mutate,
     seats: [{ seatId: 'A', role: 'lead' }, { seatId: 'B', role: 'participant' }],
   });
-  await sim.admin({ cmd: 'task', text: '作废后迟到提交' });
+  await sim.admin({ cmd: 'task', text: 'Late submission after void' });
   await sim.admin({ cmd: 'start', order: ['A', 'B'] });
   const A = createScriptedSeat({
     seatId: 'A',
@@ -22,13 +22,13 @@ export async function scenario({ mutate } = {}) {
       { wait: {} },
       { admin: { cmd: 'cancel' } },
       { wait: {} },
-      { submit: 'LATE-OLD 旧 attempt 迟到的提交', attempt: (s) => s.taken[0] },
-      { submit: 'A 新 attempt 的发言' },
+      { submit: 'LATE-OLD late submission for voided attempt', attempt: (s) => s.taken[0] },
+      { submit: 'Speech from A on fresh attempt' },
       { wait: {} },
-      { submit: 'A 的汇总' },
+      { submit: 'Summary from A' },
     ],
   });
-  const B = createScriptedSeat({ seatId: 'B', script: [{ wait: {} }, { submit: 'B 的发言' }] });
+  const B = createScriptedSeat({ seatId: 'B', script: [{ wait: {} }, { submit: 'Speech from B' }] });
   await sim.run([A, B]);
   return { sim, A, B };
 }
@@ -53,7 +53,7 @@ export function invariants({ sim, A }) {
 }
 
 if (isMain(import.meta.url)) {
-  test('#4 作废后迟到提交：记 late_submit_dropped（submission_rejected STALE_ATTEMPT）；旧回合不复活', async () => {
+  test('#4 Late submit after void: recorded as late_submit_dropped (submission_rejected STALE_ATTEMPT); old turn does not revive', async () => {
     const r = await scenario();
     await r.sim.check(() => invariants(r));
   });
@@ -61,10 +61,10 @@ if (isMain(import.meta.url)) {
   // The real seat command (lib/seat.mjs cmdSubmit) for an attempt that was canceled while the seat
   // holds no newer one: the seat writes it (CF-2), the service rejects it STALE_ATTEMPT, not
   // NOT_YOUR_TURN.
-  test('#4 真实 submit 命令：已取消的 attempt、席位手里没有新 attempt -> STALE_ATTEMPT', async () => {
+  test('#4 Real submit command: canceled attempt while seat holds no new attempt -> STALE_ATTEMPT', async () => {
     const sim = await createSim({ preset: 'discussion', seats: [{ seatId: 'A', role: 'lead' }, { seatId: 'B', role: 'participant' }] });
     await sim.check(async () => {
-      await sim.admin({ cmd: 'task', text: '迟到的真实提交' });
+      await sim.admin({ cmd: 'task', text: 'Late real submission' });
       await sim.admin({ cmd: 'start', order: ['B', 'A'] });
       await sim.tick();
       const old = sim.holding('B');
@@ -75,7 +75,7 @@ if (isMain(import.meta.url)) {
       assert.ok(!sim.holding('B'), 'B holds nothing now');
       assert.ok(sim.holding('A'), 'the turn moved on to A');
       const lines = [];
-      sim.editFile('B', 'late.md', 'LATE 已被跳过的回合');
+      sim.editFile('B', 'late.md', 'LATE submission for skipped turn');
       let done = false;
       const pending = cmdSubmit({ seat: sim.seatDir('B'), attempt: old, file: path.join(sim.cwdOf.B, 'late.md') }, { out: (l) => lines.push(l), pollMs: 10 }).finally(() => { done = true; });
       for (let i = 0; i < 400 && !done; i++) { await sim.tick(); await new Promise((r) => setTimeout(r, 10)); }

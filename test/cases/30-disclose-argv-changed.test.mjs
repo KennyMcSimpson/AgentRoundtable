@@ -1,4 +1,4 @@
-// Plan §13.1 #30 (仿真): the approver changes the argv.
+// Plan §13.1 #30 (simulation): the approver changes the argv.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createSim, IR_SEATS, runToSummary, FAKE_CODEX } from '../../sim/driver.mjs';
@@ -6,11 +6,11 @@ import { createScriptedSeat } from '../../sim/scripted-seat.mjs';
 
 const runs = (sim) => sim.spawnCalls.filter((c) => c.file !== FAKE_CODEX);
 
-test('#30 披露批准后 argv 变化：视为新请求（旧请求关闭、新请求待批、未执行任何东西）', async () => {
+test('#30 Disclosure argv changed on approval: treated as a new request (old denied, new pending, nothing executed)', async () => {
   const sim = await createSim({ preset: 'implement-review', seats: IR_SEATS });
   await sim.check(async () => {
     await runToSummary(sim);
-    const A = createScriptedSeat({ seatId: 'A', script: [{ wait: {} }, { disclose: { argv: ['git', 'diff'], reason: '看改动' } }] });
+    const A = createScriptedSeat({ seatId: 'A', script: [{ wait: {} }, { disclose: { argv: ['git', 'diff'], reason: 'Inspect changes' } }] });
     await sim.run([A]);
     const id = A.lastReply.id;
     const r = await sim.admin({ cmd: 'approve-disclose', id, argv: ['git', 'diff', '--stat'] });
@@ -29,7 +29,7 @@ test('#30 披露批准后 argv 变化：视为新请求（旧请求关闭、新�
     assert.equal(runs(sim).length, 1);
     assert.deepEqual(runs(sim)[0].args, ['diff', '--stat']);
     // changing to an argv outside the allowlist makes a new request that the room denies at once
-    const B2 = createScriptedSeat({ seatId: 'A', script: [{ disclose: { argv: ['git', 'status'], reason: '看状态' }, attempt: (s, sm) => sm.holding('A') }] });
+    const B2 = createScriptedSeat({ seatId: 'A', script: [{ disclose: { argv: ['git', 'status'], reason: 'Inspect status' }, attempt: (s, sm) => sm.holding('A') }] });
     await sim.run([B2]);
     const r2 = await sim.admin({ cmd: 'approve-disclose', id: B2.lastReply.id, argv: ['node', '-v'] });
     assert.equal(r2.error, 'ARGV_CHANGED');

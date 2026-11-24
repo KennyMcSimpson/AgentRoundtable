@@ -1,4 +1,4 @@
-// The desktop app (圆桌.exe) without Electron: the pure main-process helpers (app/main-helpers.mjs),
+// The desktop app (AgentRoundtable.exe) without Electron: the pure main-process helpers (app/main-helpers.mjs),
 // static checks of app/main.mjs and app/preload.cjs, the icon generator (dist/make-icon.mjs), the app
 // build in --dry-run (dist/build-app.mjs), the lobby's parentPort protocol (lib/lobby.mjs), and the
 // seat runtime fallback for machines without node (lib/join.mjs, admin add-seat, packets).
@@ -15,7 +15,7 @@ import { spawnSync } from 'node:child_process';
 import * as H from '../app/main-helpers.mjs';
 import { appRoot, testRunsRoot, randomHex, readJsonl, ROOM_FILES as F } from '../lib/common.mjs';
 import { buildIco, readIco, renderIcon, encodePng, ICON_SIZES, PNG_SIGNATURE } from '../dist/make-icon.mjs';
-import { parseBuildAppArgs, locateElectronZip, locateRcedit, planAppFiles, buildApp, BuildRefusal, numericVersion, rceditArgs, electronVersionFromName, runtimeExcluded, EXE_NAME, removeTree, DEFAULT_APP_ASAR } from '../dist/build-app.mjs';
+import { parseBuildAppArgs, locateElectronZip, locateRcedit, planAppFiles, buildApp, BuildRefusal, numericVersion, rceditArgs, electronVersionFromName, runtimeExcluded, APP_FOLDER, EXE_NAME, removeTree, DEFAULT_APP_ASAR } from '../dist/build-app.mjs';
 import { startLobby } from '../lib/lobby.mjs';
 import { nodeOnPath, seatRuntimeFor, seatCommandPrefix, seatRoomCmd, renderJoin, renderRoomCmd, cmdPath } from '../lib/join.mjs';
 import { ADMIN_COMMANDS } from '../lib/admin.mjs';
@@ -58,11 +58,11 @@ test('app data lives under appRoot()/app-data (ROOM_DEV_HOME honoured), never Ap
   assert.ok(!/getPath\('appData'\)|LOCALAPPDATA|APPDATA/.test(main), 'main.mjs never names AppData');
 });
 
-test('a relative ROOM_DEV_HOME is refused with a Chinese message before any folder or setPath (SEC-3)', () => {
+test('a relative ROOM_DEV_HOME is refused with an English message before any folder or setPath (SEC-3)', () => {
   const home = WIN ? 'C:\\Users\\u' : '/home/u';
   for (const bad of ['rel', 'rel\\x', './x', '..\\up']) {
     const msg = H.roomDevHomeProblem({ ROOM_DEV_HOME: bad });
-    assert.match(msg, /环境变量 ROOM_DEV_HOME 必须是绝对路径/, bad);
+    assert.match(msg, /Environment variable ROOM_DEV_HOME must be an absolute path/, bad);
     assert.ok(msg.includes(bad), 'names the value');
     const p = H.appPaths({ ROOM_DEV_HOME: bad }, home);
     assert.equal(p.problem, msg);
@@ -79,24 +79,26 @@ test('a relative ROOM_DEV_HOME is refused with a Chinese message before any fold
   const abs = H.appPaths({ ROOM_DEV_HOME: path.join(home, 'r') }, home);
   assert.equal(abs.problem, null);
   assert.equal(abs.userData, path.join(home, 'r', 'app-data'));
-  // main.mjs: the problem is checked before mkdirSync and setPath; setPath sits in try/catch with a
-  // Chinese message; the startup problem shows a Chinese error box and exits 1 before the lock.
+  // main.mjs: the problem is checked before mkdirSync and setPath; setPath sits in try/catch with an
+  // English message; the startup problem shows an English error box and exits 1 before the lock.
   const m = code('app/main.mjs');
   const i = (s) => { const k = m.indexOf(s); assert.ok(k >= 0, s); return k; };
   assert.ok(i('if (PATHS.problem) return PATHS.problem;') < i('fs.mkdirSync(PATHS.temp'), 'checked before any folder');
   assert.ok(i('if (PATHS.problem) return PATHS.problem;') < i("app.setPath('userData'"), 'checked before setPath');
   const setup = /function setupDataLocations\(\) \{([\s\S]*?)\n\}/.exec(m)[1];
-  assert.match(setup, /try \{\s*app\.setPath\('userData', PATHS\.userData\);[\s\S]*app\.setAppLogsPath\(PATHS\.logs\);\s*\} catch \(e\) \{\s*return `圆桌没能把自己的数据目录设到/);
+  assert.match(setup, /try \{\s*app\.setPath\('userData', PATHS\.userData\);[\s\S]*app\.setAppLogsPath\(PATHS\.logs\);\s*\} catch \(e\) \{\s*return `AgentRoundtable could not configure its data directory at/);
   assert.match(m, /if \(STARTUP_PROBLEM\) \{[\s\S]*?dialog\.showErrorBox\(H\.APP_TITLE, STARTUP_PROBLEM\);\s*app\.exit\(1\);\s*\} else if \(!app\.requestSingleInstanceLock\(\)\)/);
   assert.ok(i('const STARTUP_PROBLEM = setupDataLocations();') < i('if (STARTUP_PROBLEM) {'));
 });
 
 test('room window title carries the room id (F4)', () => {
-  assert.equal(H.roomWindowTitle('demo'), '圆桌 · 房间 · demo');
+  assert.equal(H.APP_TITLE, 'AgentRoundtable');
+  assert.equal(H.ROOM_WINDOW_TITLE, 'AgentRoundtable · Room');
+  assert.equal(H.roomWindowTitle('demo'), 'AgentRoundtable · Room · demo');
   assert.equal(H.roomWindowTitle('app-smoke-1a2b'), `${H.ROOM_WINDOW_TITLE} · app-smoke-1a2b`);
   assert.equal(H.roomWindowTitle(''), H.ROOM_WINDOW_TITLE);
   assert.equal(H.roomWindowTitle(undefined), H.ROOM_WINDOW_TITLE);
-  assert.equal(H.roomWindowTitle('a\nb'), '圆桌 · 房间 · ab');
+  assert.equal(H.roomWindowTitle('a\nb'), 'AgentRoundtable · Room · ab');
   assert.notEqual(H.roomWindowTitle('r1'), H.roomWindowTitle('r2'), 'two rooms differ');
 });
 
@@ -116,7 +118,7 @@ test('smoke out path must be inside appRoot(); argv flags', () => {
 
 test('lobby URL line: parsed, token never in JSON / inspect / logs', () => {
   const tok = 'a'.repeat(8) + '0123456789abcdef'.repeat(2) + 'b'.repeat(8);
-  const line = `圆桌启动器：http://127.0.0.1:51234/#${tok}`;
+  const line = `AgentRoundtable Launcher: http://127.0.0.1:51234/#${tok}`;
   const info = H.parseLobbyLine(line);
   assert.equal(info.port, 51234);
   assert.equal(info.base, 'http://127.0.0.1:51234/');
@@ -126,10 +128,10 @@ test('lobby URL line: parsed, token never in JSON / inspect / logs', () => {
   assert.ok(!`${Object.values(info).join(' ')}`.includes(tok), 'values');
   assert.deepEqual(Object.keys(info).sort(), ['base', 'port']);
   assert.ok(!H.redactSecrets(line).includes(tok), 'redacted log line');
-  assert.match(H.redactSecrets(line), /51234\/#<已隐藏>/);
+  assert.match(H.redactSecrets(line), /51234\/#<redacted>/);
   assert.ok(!H.redactSecrets(`[lobby] room x opened; open http://127.0.0.1:6000/#${tok} now`).includes(tok));
   assert.equal(H.parseLobbyLine(`${line}\r`).port, 51234, 'CRLF tolerated');
-  for (const bad of [`圆桌启动器：https://127.0.0.1:1/#${tok}`, `圆桌启动器：http://localhost:1/#${tok}`, '圆桌启动器：http://127.0.0.1:51234/', `x 圆桌启动器：http://127.0.0.1:1/#${tok}`, `圆桌启动器：http://127.0.0.1:99999/#${tok}`, `圆桌启动器：http://127.0.0.1:1/#short`]) {
+  for (const bad of [`AgentRoundtable Launcher: https://127.0.0.1:1/#${tok}`, `AgentRoundtable Launcher: http://localhost:1/#${tok}`, 'AgentRoundtable Launcher: http://127.0.0.1:51234/', `x AgentRoundtable Launcher: http://127.0.0.1:1/#${tok}`, `AgentRoundtable Launcher: http://127.0.0.1:99999/#${tok}`, `AgentRoundtable Launcher: http://127.0.0.1:1/#short`]) {
     assert.equal(H.parseLobbyLine(bad), null, bad);
   }
   // main.mjs logs the port only, and every lobby output line goes through redactSecrets.
@@ -142,18 +144,18 @@ test('lobby URL line: parsed, token never in JSON / inspect / logs', () => {
 test('line splitter: CRLF and UTF-8 split across chunks', () => {
   const lines = [];
   const push = H.lineSplitter((l) => lines.push(l));
-  const buf = Buffer.from('圆桌启动器：x\r\n第二行\n半', 'utf8');
-  push(buf.subarray(0, 4)); push(buf.subarray(4, 20)); push(buf.subarray(20));
+  const buf = Buffer.from('über-café: x\r\nnaïve\nß', 'utf8');
+  push(buf.subarray(0, 1)); push(buf.subarray(1, 10)); push(buf.subarray(10));
   push.flush();
-  assert.deepEqual(lines, ['圆桌启动器：x', '第二行', '半']);
+  assert.deepEqual(lines, ['über-café: x', 'naïve', 'ß']);
 });
 
 test('lobby fork spec and room-dev location (dev layout and packaged layout)', () => {
-  const spec = H.lobbyForkSpec({ roomDevDir: ROOT, execPath: 'C:\\apps\\圆桌\\圆桌.exe', env: { PATH: 'x', ELECTRON_RUN_AS_NODE: '1', ROOM_APP_SMOKE_OUT: 'y' } });
+  const spec = H.lobbyForkSpec({ roomDevDir: ROOT, execPath: 'C:\\apps\\AgentRoundtable\\AgentRoundtable.exe', env: { PATH: 'x', ELECTRON_RUN_AS_NODE: '1', ROOM_APP_SMOKE_OUT: 'y' } });
   assert.equal(spec.modulePath, path.join(ROOT, 'room.mjs'));
   assert.deepEqual(spec.args, ['lobby', '--port', '0']);
   assert.equal(spec.options.stdio, 'pipe');
-  assert.equal(spec.options.env.ROOM_SEAT_RUNTIME, 'C:\\apps\\圆桌\\圆桌.exe');
+  assert.equal(spec.options.env.ROOM_SEAT_RUNTIME, 'C:\\apps\\AgentRoundtable\\AgentRoundtable.exe');
   assert.equal(spec.options.env.PATH, 'x');
   assert.ok(!('ELECTRON_RUN_AS_NODE' in spec.options.env) && !('ROOM_APP_SMOKE_OUT' in spec.options.env));
   assert.equal(H.resolveRoomDevDir(path.join(ROOT, 'app')), path.resolve(ROOT), 'development: the repository');
@@ -186,6 +188,7 @@ test('window.open: announced room UIs open as app windows, https asks, everythin
   assert.equal(H.externalUrlAllowed('https://x.y/'), true);
   assert.equal(H.externalUrlAllowed('http://x.y/'), false);
   assert.equal(H.describeUrl('http://127.0.0.1:5001/#secret'), 'http://127.0.0.1:5001');
+  assert.equal(H.describeUrl('not a url'), '<invalid-url>');
 });
 
 test('reload accelerators are recognised (Ctrl+R, Ctrl+Shift+R, F5), nothing else', () => {
@@ -198,9 +201,9 @@ test('reload accelerators are recognised (Ctrl+R, Ctrl+Shift+R, F5), nothing els
   }
 });
 
-test('context menu: 复制 / 粘贴 / 剪切 / 全选 only, enabled by the edit flags', () => {
+test('context menu: Copy / Paste / Cut / Select All only, enabled by the edit flags', () => {
   const none = H.contextMenuTemplate({ editFlags: {} });
-  assert.deepEqual(none.map((x) => x.label), ['复制', '粘贴', '剪切', '全选']);
+  assert.deepEqual(none.map((x) => x.label), ['Copy', 'Paste', 'Cut', 'Select All']);
   assert.deepEqual(none.map((x) => x.role), ['copy', 'paste', 'cut', 'selectAll']);
   assert.ok(none.every((x) => x.enabled === false));
   const field = H.contextMenuTemplate({ isEditable: true, selectionText: 'abc', editFlags: { canCopy: true, canPaste: true, canCut: true, canSelectAll: true } });
@@ -220,17 +223,17 @@ test('existingAncestor: the folder picker starts at the nearest existing folder'
 // ---------------------------------------------------------------- smoke
 
 test('smoke result shape and checks; the in-page scripts parse and carry the token only as a string', () => {
-  const ok = H.buildSmokeResult({ page: { title: '圆桌启动器', hasCreate: true, isApp: true, hasToken: true, fragmentCleared: true, extra: 1 }, lobbyPortOk: true, windows: 1, userData: 'C:\\u\\room-dev\\app-data' });
+  const ok = H.buildSmokeResult({ page: { title: 'AgentRoundtable Launcher', hasCreate: true, isApp: true, hasToken: true, fragmentCleared: true, extra: 1 }, lobbyPortOk: true, windows: 1, userData: 'C:\\u\\room-dev\\app-data' });
   for (const k of H.SMOKE_KEYS) assert.ok(k in ok, k);
   assert.ok(!('extra' in ok), 'only known page keys');
   assert.deepEqual(H.smokeProblems(ok, { expectUserData: 'C:\\u\\room-dev\\app-data' }), []);
   assert.deepEqual(H.smokeProblems({ ...ok, isApp: false, windows: 0 }), ['isApp', 'windows']);
   assert.deepEqual(H.smokeProblems(ok, { expectUserData: 'C:\\other' }), ['userData']);
   assert.ok(H.smokeProblems(ok, { smokeRoom: true }).includes('room'));
-  const withRoom = H.buildSmokeResult({ page: { title: 't', hasCreate: true, isApp: true, hasToken: true }, lobbyPortOk: true, windows: 2, userData: 'x', room: { ok: true, id: 'app-smoke-1', title: '房间界面', windowTitle: '圆桌 · 房间 · app-smoke-1', port: 1 } });
+  const withRoom = H.buildSmokeResult({ page: { title: 't', hasCreate: true, isApp: true, hasToken: true }, lobbyPortOk: true, windows: 2, userData: 'x', room: { ok: true, id: 'app-smoke-1', title: 'Room Workspace', windowTitle: 'AgentRoundtable · Room · app-smoke-1', port: 1 } });
   assert.deepEqual(H.smokeProblems(withRoom, { smokeRoom: true }), []);
   // The room window must carry its room id in the title.
-  assert.deepEqual(H.smokeProblems({ ...withRoom, room: { ...withRoom.room, windowTitle: '圆桌 · 房间' } }, { smokeRoom: true }), ['roomWindowTitle']);
+  assert.deepEqual(H.smokeProblems({ ...withRoom, room: { ...withRoom.room, windowTitle: 'AgentRoundtable · Room' } }, { smokeRoom: true }), ['roomWindowTitle']);
   assert.deepEqual(H.smokeProblems(H.buildSmokeResult({ error: 'LOBBY_EXITED_1' })).slice(0, 1), ['error:LOBBY_EXITED_1']);
   // Both scripts are valid JavaScript expressions.
   assert.doesNotThrow(() => new Function(`return ${H.SMOKE_PAGE_SCRIPT};`));
@@ -241,7 +244,8 @@ test('smoke result shape and checks; the in-page scripts parse and carry the tok
   assert.match(s, /"C:\\\\Users\\\\u\\\\room-dev/, 'paths are JSON-escaped');
   assert.match(s, /window\.open\(o\.json\.url, '_blank'\)/, 'same window-open path as the button');
   assert.ok(!/return \{ ok: true[^}]*url/.test(s), 'the room url (admin token) is not returned');
-  assert.match(H.SMOKE_PAGE_SCRIPT, /新建房间/);
+  assert.match(H.SMOKE_PAGE_SCRIPT, /New Room/);
+  assert.match(H.SMOKE_PAGE_SCRIPT, /Loaded/);
   assert.match(H.SMOKE_PAGE_SCRIPT, /window\.roomApp/);
 });
 
@@ -266,7 +270,7 @@ test('main.mjs: sandboxed windows, guarded navigation, single instance, no menu,
   assert.match(m, /backgroundColor: bg\(\)/);
   assert.match(m, /show: false/);
   assert.match(m, /ready-to-show/);
-  assert.match(m, /dialog\.showErrorBox\(H\.APP_TITLE, `圆桌启动器进程意外退出/);
+  assert.match(m, /dialog\.showErrorBox\(H\.APP_TITLE, `AgentRoundtable Launcher process exited unexpectedly/);
   assert.match(m, /shell\.openExternal\(url\)/);
   assert.ok(m.indexOf('showMessageBox') < m.indexOf('shell.openExternal(url)'), 'confirm before opening a browser');
   assert.equal(H.QUIT_GRACE_MS, 4000);
@@ -325,7 +329,7 @@ test('evidence export: the app keeps downloads cancelled and saves through room:
   assert.equal(H.evidenceDefaultPath(root, 'room-evidence-demo-1700000000000.json'), path.join(root, 'exports', 'room-evidence-demo-1700000000000.json'));
   assert.equal(H.evidenceDefaultPath(root, '..\\..\\Windows\\evil.json'), path.join(root, 'exports', 'evil.json'), 'no path parts');
   assert.equal(H.evidenceDefaultPath(root, '../x y:z'), path.join(root, 'exports', 'x_y_z.json'));
-  assert.equal(H.evidenceDefaultPath(root, '房间-1.json'), path.join(root, 'exports', '房间-1.json'));
+  assert.equal(H.evidenceDefaultPath(root, 'café-1.json'), path.join(root, 'exports', 'café-1.json'));
   assert.equal(H.evidenceDefaultPath(root, '', 42), path.join(root, 'exports', 'room-evidence-42.json'));
   assert.ok(H.isInsideDir(H.evidenceDefaultPath(root, '...'), path.join(root, 'exports')));
 });
@@ -350,46 +354,47 @@ async function runExport(roomApp, answer) {
   return { toasts, saved, clicks };
 }
 
-test('ui/app.js 导出证据: in the app it goes through saveEvidence and claims success only when saved', async () => {
+test('ui/app.js exportEvidence: in the app it goes through saveEvidence and claims success only when saved', async () => {
   const ok = await runExport(true, { saved: true, path: 'C:\\Users\\u\\room-dev\\exports\\e.json' });
   assert.equal(ok.saved.length, 1);
   assert.match(ok.saved[0].name, /^room-evidence-demo-\d+\.json$/);
   const payload = JSON.parse(ok.saved[0].text);
   assert.deepEqual(payload.events, [{ seq: 1 }]);
-  assert.ok(!/token/i.test(ok.saved[0].text.replace(/不含令牌/g, '')), 'no token');
+  assert.ok(!/token/i.test(ok.saved[0].text), 'no token');
   assert.deepEqual(ok.clicks, [], 'no <a download> in the app');
-  assert.deepEqual(ok.toasts, [{ t: '已导出证据 JSON：C:\\Users\\u\\room-dev\\exports\\e.json', tone: 'ok' }]);
+  assert.deepEqual(ok.toasts, [{ t: 'Exported evidence JSON: C:\\Users\\u\\room-dev\\exports\\e.json', tone: 'ok' }]);
   const cancel = await runExport(true, { saved: false, canceled: true });
   assert.equal(cancel.toasts.length, 1);
   assert.notEqual(cancel.toasts[0].tone, 'ok');
-  assert.ok(!/已导出证据 JSON/.test(cancel.toasts[0].t), 'cancel is not reported as exported');
+  assert.deepEqual(cancel.toasts, [{ t: 'Evidence export canceled.', tone: '' }]);
+  assert.ok(!/Exported evidence JSON/.test(cancel.toasts[0].t), 'cancel is not reported as exported');
   const failed = await runExport(true, { saved: false, error: 'EACCES' });
-  assert.deepEqual(failed.toasts, [{ t: '证据没有导出：EACCES', tone: 'bad' }]);
-  const rejected = await runExport(true, () => Promise.reject(new Error('IPC 断开')));
-  assert.deepEqual(rejected.toasts, [{ t: '证据没有导出：IPC 断开', tone: 'bad' }]);
+  assert.deepEqual(failed.toasts, [{ t: 'Evidence export failed: EACCES', tone: 'bad' }]);
+  const rejected = await runExport(true, () => Promise.reject(new Error('IPC disconnected')));
+  assert.deepEqual(rejected.toasts, [{ t: 'Evidence export failed: IPC disconnected', tone: 'bad' }]);
   // Browser: the blob download, as before.
   const browser = await runExport(false);
   assert.equal(browser.clicks.length, 1);
   assert.match(browser.clicks[0].download, /^room-evidence-demo-\d+\.json$/);
-  assert.deepEqual(browser.toasts, [{ t: '已导出证据 JSON', tone: 'ok' }]);
+  assert.deepEqual(browser.toasts, [{ t: 'Exported evidence JSON', tone: 'ok' }]);
 });
 
-test('app/package.json: 圆桌, ESM main, version of the root package.json', () => {
+test('app/package.json: AgentRoundtable, ESM main, version of the root package.json', () => {
   const app = JSON.parse(read('app/package.json'));
   const rootPkg = JSON.parse(read('package.json'));
   assert.equal(app.name, 'room-dev-app');
-  assert.equal(app.productName, '圆桌');
+  assert.equal(app.productName, 'AgentRoundtable');
   assert.equal(app.version, rootPkg.version);
   assert.equal(app.type, 'module');
   assert.equal(app.main, 'main.mjs');
   assert.equal(rootPkg.scripts.app, 'node dist/build-app.mjs');
 });
 
-test('ui/lobby.js uses window.roomApp when present: 浏览… picker, app clipboard, window.open after the lobby answers', () => {
+test('ui/lobby.js uses window.roomApp when present: Browse… picker, app clipboard, window.open after the lobby answers', () => {
   const c = code('ui/lobby.js');
   assert.match(c, /var APP = \(typeof window !== 'undefined' && window\.roomApp && window\.roomApp\.isApp === true\) \? window\.roomApp : null;/);
   assert.match(c, /APP\.pickFolder\(/);
-  assert.match(c, /text: '浏览…'/);
+  assert.match(c, /text: 'Browse…'/);
   assert.match(c, /APP\.copyText\(text\)/);
   assert.match(c, /if \(APP\) \{ openRoomUiInApp\(id, btn\); return; \}/);
   assert.match(c, /window\.open\(url, '_blank'\)/);
@@ -438,8 +443,8 @@ test('icon: committed app/icon.ico is what dist/make-icon.mjs draws; valid ICO w
 
 test('build-app: argument parsing, version helpers, rcedit arguments', () => {
   assert.deepEqual(parseBuildAppArgs(['--electron-zip', 'a.zip', '--out', 'o', '--zip', '--dry-run', '--rcedit', 'r.exe']), { electronZip: 'a.zip', rcedit: 'r.exe', out: 'o', zip: true, dryRun: true, help: false });
-  assert.throws(() => parseBuildAppArgs(['--download']), /未知参数/);
-  assert.throws(() => parseBuildAppArgs(['--out']), /路径/);
+  assert.throws(() => parseBuildAppArgs(['--download']), /Unknown option/);
+  assert.throws(() => parseBuildAppArgs(['--out']), /requires a path/);
   assert.equal(electronVersionFromName('C:\\x\\electron-v43.6.0-win32-x64.zip'), '43.6.0');
   assert.equal(electronVersionFromName('electron-v43.6.0-darwin-x64.zip'), null);
   assert.equal(numericVersion('0.1.0-dev'), '0.1.0.0');
@@ -447,11 +452,12 @@ test('build-app: argument parsing, version helpers, rcedit arguments', () => {
   const a = rceditArgs({ exe: 'X.exe', icon: 'i.ico', version: '0.1.0-dev' });
   const pairs = {};
   for (let i = 0; i < a.length; i++) if (a[i] === '--set-version-string') { pairs[a[i + 1]] = a[i + 2]; i += 2; }
-  assert.deepEqual(pairs, { FileDescription: '圆桌', ProductName: '圆桌', CompanyName: 'KennyMcSimpson', OriginalFilename: '圆桌.exe', InternalName: '圆桌' });
+  assert.deepEqual(pairs, { FileDescription: 'AgentRoundtable', ProductName: 'AgentRoundtable', CompanyName: 'KennyMcSimpson', OriginalFilename: 'AgentRoundtable.exe', InternalName: 'AgentRoundtable' });
   assert.equal(a[a.indexOf('--set-icon') + 1], 'i.ico');
   assert.equal(a[a.indexOf('--set-file-version') + 1], '0.1.0.0');
   assert.equal(a[a.indexOf('--set-product-version') + 1], '0.1.0.0');
-  assert.equal(EXE_NAME, '圆桌.exe');
+  assert.equal(EXE_NAME, 'AgentRoundtable.exe');
+  assert.equal(APP_FOLDER, 'AgentRoundtable');
 });
 
 test('build-app: the zip and rcedit locators read the caches and pick the newest', () => {
@@ -486,7 +492,7 @@ test('build-app --dry-run: file plan ships app/ and the room-dev runtime, not fi
   const out = path.join(b, 'out');
   const r = await buildApp({ dryRun: true, electronZip: zip, out, env: { LOCALAPPDATA: path.join(b, 'none') }, log: () => {} });
   assert.equal(r.dryRun, true);
-  assert.equal(r.out, path.join(out, '圆桌'));
+  assert.equal(r.out, path.join(out, 'AgentRoundtable'));
   assert.ok(!fs.existsSync(out), 'a dry run writes nothing');
   const dests = new Set(r.plan.map((p) => p.dest));
   for (const d of ['resources/app/main.mjs', 'resources/app/main-helpers.mjs', 'resources/app/preload.cjs', 'resources/app/icon.ico', 'resources/app/package.json',
@@ -514,21 +520,21 @@ test('build-app --dry-run: file plan ships app/ and the room-dev runtime, not fi
 test('build-app refuses without an Electron zip and never downloads (function and CLI)', async () => {
   const b = base('nozip');
   const out = path.join(b, 'out');
-  await assert.rejects(buildApp({ dryRun: true, out, env: { LOCALAPPDATA: path.join(b, 'empty') }, log: () => {} }), (e) => e instanceof BuildRefusal && e.code === 'NO_ELECTRON_ZIP' && /不下载/.test(e.message) && /--electron-zip/.test(e.message));
+  await assert.rejects(buildApp({ dryRun: true, out, env: { LOCALAPPDATA: path.join(b, 'empty') }, log: () => {} }), (e) => e instanceof BuildRefusal && e.code === 'NO_ELECTRON_ZIP' && /never downloads/.test(e.message) && /--electron-zip/.test(e.message));
   const env = { ...process.env, LOCALAPPDATA: path.join(b, 'empty') };
   delete env.ROOM_ELECTRON_ZIP;
   const r = spawnSync(process.execPath, [path.join(ROOT, 'dist', 'build-app.mjs'), '--out', out], { env, encoding: 'utf8', timeout: 60_000, windowsHide: true });
   assert.equal(r.status, 2, r.stderr);
   assert.match(r.stderr, /^REFUSED NO_ELECTRON_ZIP/m);
-  assert.match(r.stderr, /本脚本不下载任何东西/);
+  assert.match(r.stderr, /This script never downloads anything/);
   assert.ok(!fs.existsSync(out), 'nothing written');
   const src = code('dist/build-app.mjs');
   assert.ok(!/\bfetch\(|https?:\/\/|node:https|node:http\b/.test(src), 'no network code in build-app');
 });
 
-test('build-app removes folders by non-ASCII paths (圆桌) and never leaves default_app.asar or fs.rmSync in play', async () => {
+test('build-app removes folders by non-ASCII paths (über-dir) and never leaves default_app.asar or fs.rmSync in play', async () => {
   const b = base('rmtree');
-  const d = path.join(b, `.${'圆桌'}.old-test`, 'resources');
+  const d = path.join(b, `.${'über-dir'}.old-test`, 'resources');
   fs.mkdirSync(d, { recursive: true });
   fs.writeFileSync(path.join(d, 'x.bin'), 'x');
   await removeTree(path.dirname(d));
@@ -599,7 +605,7 @@ test('lobby without a parent port (CLI) does not exit the process and posts noth
 
 // ---------------------------------------------------------------- seat runtime fallback
 
-const FAKE_EXE = WIN ? 'C:\\Program Files\\圆桌\\圆桌.exe' : '/opt/圆桌/圆桌';
+const FAKE_EXE = WIN ? 'C:\\Program Files\\über-app\\AgentRoundtable.exe' : '/opt/über-app/AgentRoundtable';
 
 test('nodeOnPath / seatRuntimeFor: node on PATH wins; otherwise ROOM_SEAT_RUNTIME (absolute) is the runtime', () => {
   const winFs = (set) => (p) => set.has(p);
@@ -617,7 +623,7 @@ test('nodeOnPath / seatRuntimeFor: node on PATH wins; otherwise ROOM_SEAT_RUNTIM
 });
 
 test('room.cmd for an app-runtime seat runs room.mjs on the app exe with ELECTRON_RUN_AS_NODE=1', () => {
-  const roomMjs = WIN ? 'C:\\Program Files\\圆桌\\resources\\app\\room-dev\\room.mjs' : '/opt/圆桌/resources/app/room-dev/room.mjs';
+  const roomMjs = WIN ? 'C:\\Program Files\\über-app\\resources\\app\\room-dev\\room.mjs' : '/opt/über-app/resources/app/room-dev/room.mjs';
   const t = renderRoomCmd({ roomMjs, runtime: { kind: 'app', exe: FAKE_EXE } });
   assert.ok(!/[^\r]\n/.test(t), 'CRLF only');
   assert.deepEqual(t.split('\r\n'), ['@echo off', 'chcp 65001 >nul', 'setlocal', 'set "ELECTRON_RUN_AS_NODE=1"', `"${path.resolve(FAKE_EXE)}" "${path.resolve(roomMjs)}" %*`, 'exit /b %ERRORLEVEL%', '']);
@@ -625,7 +631,7 @@ test('room.cmd for an app-runtime seat runs room.mjs on the app exe with ELECTRO
   assert.equal(renderRoomCmd({ roomMjs: WIN ? 'C:\\room-dev\\room.mjs' : '/room-dev/room.mjs' }), `@echo off\r\nnode "${path.resolve(WIN ? 'C:\\room-dev\\room.mjs' : '/room-dev/room.mjs')}" %*\r\nexit /b %ERRORLEVEL%\r\n`);
 });
 
-test('JOIN.md: node seats keep node <room.mjs> and its rule; app-runtime seats are told to call room.cmd', () => {
+test('JOIN.md: node seats keep node <room.mjs> and its rule; app-runtime seats are told to call room.cmd / room.sh', () => {
   const roomMjs = WIN ? 'C:\\room-dev\\room.mjs' : '/room-dev/room.mjs';
   const seatDir = WIN ? 'C:\\Users\\u\\room-dev\\rooms\\demo\\seats\\B' : '/home/u/room-dev/rooms/demo/seats/B';
   const roomDir = path.dirname(path.dirname(seatDir));
@@ -635,19 +641,20 @@ test('JOIN.md: node seats keep node <room.mjs> and its rule; app-runtime seats a
   assert.ok(nodeMd.includes(`Bash(node ${mjs}:*)`));
   assert.ok(nodeMd.includes(`node ${mjs} wait --seat`));
   const appSeat = { ...seat, runtime: { kind: 'app', exe: FAKE_EXE } };
-  const rc = cmdPath(path.join(seatDir, 'room.cmd'));
+  const rcName = process.platform === 'win32' ? 'room.cmd' : 'room.sh';
+  const rc = cmdPath(path.join(seatDir, rcName));
   assert.equal(seatCommandPrefix({ seat: appSeat, seatDir, roomMjs }), rc);
   assert.equal(seatCommandPrefix({ seat, seatDir, roomMjs }), `node ${mjs}`);
   assert.equal(seatRoomCmd({ seat: appSeat, seatDir, fallback: 'F' }), rc);
   assert.equal(seatRoomCmd({ seat, seatDir, fallback: 'F' }), 'F');
   const md = renderJoin({ room: { id: 'demo' }, seat: appSeat, seatDir, roomDir, roomMjs, agent: 'claude-code' });
-  assert.ok(md.includes(`Bash(${rc}:*)`), 'allow rule for room.cmd');
+  assert.ok(md.includes(`Bash(${rc}:*)`), `allow rule for ${rcName}`);
   assert.ok(!md.includes(`Bash(node `), 'no node rule');
   assert.ok(md.includes(`${rc} wait --seat`) && md.includes(`${rc} submit --seat`) && md.includes(`${rc} leave --seat`) && md.includes(`${rc} status --seat`));
-  assert.ok(!/\bnode [A-Za-z/"]/.test(md.replace(/不要改用 node/g, '')), 'no node command anywhere');
-  assert.match(md, /PATH 上没有 node/);
+  assert.ok(!/\bnode [A-Za-z/"]/.test(md.replace(/No node was on PATH|Do not switch to node/g, '')), 'no node command anywhere');
+  assert.match(md, /No node was on PATH/);
   const codex = renderJoin({ room: { id: 'demo' }, seat: { ...appSeat, agent: 'codex-cli', waitMode: 'turn_over' }, seatDir, roomDir, roomMjs, agent: 'codex-cli' });
-  assert.ok(codex.includes(`只放行 ${rc} 这一个命令前缀`));
+  assert.ok(codex.includes(`allow only the ${rc} command prefix`));
 });
 
 test('admin add-seat records the runtime only without node on PATH; packets and the room.cmd follow it', async () => {
@@ -670,12 +677,13 @@ test('admin add-seat records the runtime only without node on PATH; packets and 
   const cmdA = fs.readFileSync(path.join(roomDir, 'seats', 'A', 'room.cmd'), 'utf8');
   assert.match(cmdA, /set "ELECTRON_RUN_AS_NODE=1"/);
   const joinA = fs.readFileSync(path.join(roomDir, 'seats', 'A', 'JOIN.md'), 'utf8');
-  const rcA = cmdPath(path.join(roomDir, 'seats', 'A', 'room.cmd'));
+  const rcName = process.platform === 'win32' ? 'room.cmd' : 'room.sh';
+  const rcA = cmdPath(path.join(roomDir, 'seats', 'A', rcName));
   assert.ok(joinA.includes(`Bash(${rcA}:*)`));
   const joinB = fs.readFileSync(path.join(roomDir, 'seats', 'B', 'JOIN.md'), 'utf8');
   if (!seatB.runtime) assert.match(joinB, /Bash\(node /);
 
-  // The packet the service issues to A names A's room.cmd.
+  // The packet the service issues to A names A's room launcher.
   const svc = createRoomService({
     roomDir, now: () => Date.parse('2026-10-04T00:00:00Z'), log: () => {}, codexExe: null, gitExe: null,
     spawn: async () => ({ code: 0, signal: null, stdout: '', stderr: '', raw: { stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }, truncated: false, timedOut: false, spawnError: null }),
@@ -688,7 +696,7 @@ test('admin add-seat records the runtime only without node on PATH; packets and 
     const issued = readJsonl(path.join(roomDir, F.events)).filter((e) => e.type === 'packet_issued' && e.seatId === 'A');
     assert.ok(issued.length >= 1, 'A got a packet');
     const pkt = fs.readFileSync(path.join(roomDir, F.packets, `${issued[0].packetId}.md`), 'utf8');
-    assert.ok(pkt.includes(rcA), 'packet names A\'s room.cmd');
+    assert.ok(pkt.includes(rcA), `packet names A's ${rcName}`);
   } finally {
     await svc.close();
   }
@@ -696,17 +704,17 @@ test('admin add-seat records the runtime only without node on PATH; packets and 
 
 // ---------------------------------------------------------------- F1: lock probe with a non-ASCII image
 
-test('service.lock probe: a holder named 圆桌 is recognised (base64 name, not the OEM code page)', async () => {
+test('service.lock probe: a holder named über-app is recognised (base64 name, not the OEM code page)', async () => {
   const { probeLockHolder, lockProbeScript, parseLockProbeOutput } = await import('../lib/service.mjs');
   const now = Date.now();
-  const lock = { pid: 4321, image: '圆桌', procStartedAt: '2026-10-01T08:00:00.000Z', heartbeatAt: new Date(now).toISOString() };
+  const lock = { pid: 4321, image: 'über-app', procStartedAt: '2026-10-01T08:00:00.000Z', heartbeatAt: new Date(now).toISOString() };
   const fake = (stdout) => async (cmd, args) => { assert.equal(cmd, 'powershell.exe'); assert.match(args.at(-1), /ToBase64String\(\[Text\.Encoding\]::UTF8\.GetBytes\(\$p\.ProcessName\)\)/); return { code: 0, stdout, stderr: '', spawnError: null, timedOut: false }; };
   const b64 = (s) => `b64:${Buffer.from(s, 'utf8').toString('base64')}`;
   const alive = () => true;
-  assert.equal(await probeLockHolder(lock, { spawn: fake(`${b64('圆桌')}|2026-10-01T07:59:59.9000000Z\r\n`), isAlive: alive, nowMs: now }), 'alive', 'the app holding its room');
+  assert.equal(await probeLockHolder(lock, { spawn: fake(`${b64('über-app')}|2026-10-01T07:59:59.9000000Z\r\n`), isAlive: alive, nowMs: now }), 'alive', 'the app holding its room');
   assert.equal(await probeLockHolder(lock, { spawn: fake(`${b64('node')}|2026-10-01T07:59:59.9000000Z\r\n`), isAlive: alive, nowMs: now }), 'stale', 'another image');
   assert.equal(await probeLockHolder(lock, { spawn: fake(`b64:%%%|2026-10-01T07:59:59.9000000Z`), isAlive: alive, nowMs: now }), 'unknown', 'unreadable name: do not take over');
-  assert.deepEqual(parseLockProbeOutput(`${b64('圆桌')}|t\r\n`), ['圆桌', 't']);
+  assert.deepEqual(parseLockProbeOutput(`${b64('über-app')}|t\r\n`), ['über-app', 't']);
   assert.deepEqual(parseLockProbeOutput('node|t'), ['node', 't'], 'plain form still parsed');
   assert.match(lockProbeScript(12), /\[System\.Diagnostics\.Process\]::GetProcessById\(12\)/);
   assert.ok(!/Get-Process|-Process\b/.test(lockProbeScript(12)), 'no cmdlet: cmdlet autoload hit the 15 s timeout on a CI runner');
@@ -721,14 +729,14 @@ test('service.lock probe: a holder named 圆桌 is recognised (base64 name, not 
 test('service.lock probe on the real PowerShell: a running process whose image is non-ASCII is "alive"', { skip: !WIN && 'Windows only' }, async () => {
   const { probeLockHolder } = await import('../lib/service.mjs');
   const b = base('probe');
-  // A hard link (or a copy) of this node binary under a Chinese name, so the OS reports a non-ASCII image.
-  const exe = path.join(b, '圆桌探测.exe');
+  // A hard link (or a copy) of this node binary under a non-ASCII name, so the OS reports a non-ASCII image.
+  const exe = path.join(b, 'über-probe.exe');
   try { fs.linkSync(process.execPath, exe); } catch { fs.copyFileSync(process.execPath, exe); }
   const { spawn } = await import('node:child_process');
   const child = spawn(exe, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore', windowsHide: true });
   try {
     await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject); });
-    const lock = { pid: child.pid, image: '圆桌探测', procStartedAt: new Date(Date.now() + 1000).toISOString(), heartbeatAt: new Date().toISOString() };
+    const lock = { pid: child.pid, image: 'über-probe', procStartedAt: new Date(Date.now() + 1000).toISOString(), heartbeatAt: new Date().toISOString() };
     assert.equal(await probeLockHolder(lock), 'alive');
     assert.equal(await probeLockHolder({ ...lock, image: 'node' }), 'stale', 'a different image is still told apart');
   } finally {
@@ -811,5 +819,5 @@ test('lobby seat hint follows the seat runtime', async () => {
   const rc = 'C:/Users/u/room-dev/rooms/r/seats/A/room.cmd';
   assert.match(seatHint({ agent: 'claude-code', cwd: 'C:\\w', prefix: rc }), new RegExp(`Bash\\(${rc.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}:\\*\\)`));
   assert.match(seatHint({ agent: 'claude-code', cwd: 'C:\\w' }), /Bash\(node /);
-  assert.match(seatHint({ agent: 'gemini-cli', cwd: 'C:\\w', prefix: rc }), new RegExp(`只放行 ${rc.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')} 这一个命令前缀`));
+  assert.match(seatHint({ agent: 'gemini-cli', cwd: 'C:\\w', prefix: rc }), new RegExp(`allow only the ${rc.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')} command prefix`));
 });

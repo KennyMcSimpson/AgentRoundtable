@@ -1,1 +1,0 @@
-Superseded notice: summary v{{oldVersion}} has been superseded by v{{newVersion}}. The earlier summary is no longer valid; rely only on summary v{{newVersion}} in this packet and do not act on v{{oldVersion}}.

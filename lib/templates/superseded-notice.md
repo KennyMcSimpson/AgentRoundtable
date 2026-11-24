@@ -1,1 +1,1 @@
-取代通知：汇总 v{{oldVersion}} 已被 v{{newVersion}} 取代。旧版的结论不再有效；以本包所附的汇总 v{{newVersion}} 为准，不要再依据 v{{oldVersion}}。
+Superseded notice: summary v{{oldVersion}} has been superseded by v{{newVersion}}. The earlier summary is no longer valid; rely only on summary v{{newVersion}} in this packet and do not act on v{{oldVersion}}.

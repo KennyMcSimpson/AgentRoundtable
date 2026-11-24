@@ -1,20 +1,20 @@
-// Plan §13.1 #24 (仿真): the hosted Pi seat (fake provider) gets HTTP 429.
+// Plan §13.1 #24 (simulation): the hosted Pi seat (fake provider) gets HTTP 429.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createSim } from '../../sim/driver.mjs';
 import { createScriptedSeat } from '../../sim/scripted-seat.mjs';
 import { createFakeProvider } from '../../lib/hosted/pi.mjs';
 
-test('#24 托管席位 429：failed(rate_limited)，无立即重试', async () => {
-  const provider = createFakeProvider({ script: [{ throw: Object.assign(new Error('429 Too Many Requests'), { status: 429 }) }, { text: '不应被调用' }] });
+test('#24 Hosted seat receives 429: recorded as failed(rate_limited) with no immediate retry', async () => {
+  const provider = createFakeProvider({ script: [{ throw: Object.assign(new Error('429 Too Many Requests'), { status: 429 }) }, { text: 'Should not be called' }] });
   const sim = await createSim({
     preset: 'discussion', piProvider: provider, piApiKey: 'sk-sim-fake-key-0000',
     seats: [{ seatId: 'A', role: 'lead' }, { seatId: 'P', role: 'participant', hosted: 'pi:discussion' }],
   });
   await sim.check(async () => {
-    await sim.admin({ cmd: 'task', text: '限流' });
+    await sim.admin({ cmd: 'task', text: 'Rate limit' });
     await sim.admin({ cmd: 'start', order: ['A', 'P'] });
-    await sim.run([createScriptedSeat({ seatId: 'A', script: [{ wait: {} }, { submit: 'A 开题' }] })]);
+    await sim.run([createScriptedSeat({ seatId: 'A', script: [{ wait: {} }, { submit: 'A opening' }] })]);
     await sim.tick(3);
     const pPkt = sim.lastEvent('packet_issued', (e) => e.seatId === 'P');
     const sf = sim.lastEvent('seat_failed');

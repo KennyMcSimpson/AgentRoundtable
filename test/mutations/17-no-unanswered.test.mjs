@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { scenario, invariants } from '../cases/17-summary-misses-item.test.mjs';
 
-test('#17 变异 no-unanswered：汇总不再标出未回应条目，用例变红', async () => {
+test('#17 mutation no-unanswered: summary no longer flags unanswered items and the case fails', async () => {
   const r = await scenario({ mutate: 'no-unanswered' });
   try {
     assert.deepEqual(r.sim.state().mutate, ['no-unanswered']);

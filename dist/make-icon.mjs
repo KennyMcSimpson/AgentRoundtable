@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// dist/make-icon.mjs: draws the 圆桌 app icon (a round table with four seats) in pure Node and
+// dist/make-icon.mjs: draws the AgentRoundtable app icon (a round table with four seats) in pure Node and
 // writes app/icon.ico. No image library: RGBA pixels are drawn with 4x4 supersampling, encoded as
 // PNG with node:zlib, and packed into one ICO with 16/24/32/48/64/128/256 px entries (PNG-compressed
 // ICO entries, which Windows reads since Vista). The pixels are deterministic, so the committed

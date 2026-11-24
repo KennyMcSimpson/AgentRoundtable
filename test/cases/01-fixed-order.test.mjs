@@ -1,4 +1,4 @@
-// Plan §13.1 #1 (仿真): N=3 and N=5 seats in a fixed order.
+// Plan §13.1 #1 (simulation): N=3 and N=5 seats in a fixed order.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createSim, attemptOutcomes, isMain } from '../../sim/driver.mjs';
@@ -12,13 +12,13 @@ export async function scenario({ n = 3, cancelSeat = null, mutate } = {}) {
     preset: 'discussion', mutate,
     seats: ids.map((id, i) => ({ seatId: id, role: i === 0 ? 'lead' : 'participant' })),
   });
-  await sim.admin({ cmd: 'task', text: `N=${n} 固定顺序讨论` });
+  await sim.admin({ cmd: 'task', text: `N=${n} fixed-order discussion` });
   await sim.admin({ cmd: 'start', order: ids });
   const seats = ids.map((id, i) => {
     const script = [{ wait: {} }];
     if (id === cancelSeat) script.push({ admin: { cmd: 'cancel' } }, { wait: {} });
-    script.push({ submit: `${id} 的发言（第 ${i + 1} 位）` });
-    if (i === 0) script.push({ wait: {} }, { submit: `${id} 的汇总` });
+    script.push({ submit: `Speech from ${id} (position ${i + 1})` });
+    if (i === 0) script.push({ wait: {} }, { submit: `Summary from ${id}` });
     return createScriptedSeat({ seatId: id, script });
   });
   await sim.run(seats);
@@ -54,12 +54,12 @@ export function invariants({ sim, ids }) {
 }
 
 if (isMain(import.meta.url)) {
-  test('#1 N=3 固定顺序：每个 (epoch, roundId, seatId, attemptId) 恰好一个终态；每个 (epoch, roundId, seatId) 至多一个 submitted；主力只在全员终态后汇总', async () => {
+  test('#1 N=3 fixed order: each (epoch, roundId, seatId, attemptId) has exactly one terminal; each (epoch, roundId, seatId) has at most one submitted; lead summarizes only after all seats finish', async () => {
     const r = await scenario({ n: 3 });
     await r.sim.check(() => invariants(r));
   });
 
-  test('#1 N=5 固定顺序（含一次作废后重发）：同上三条断言', async () => {
+  test('#1 N=5 fixed order (with one cancel and reissue): same three invariants hold', async () => {
     const r = await scenario({ n: 5, cancelSeat: 'C' });
     await r.sim.check(() => {
       invariants(r);

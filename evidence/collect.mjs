@@ -10,8 +10,8 @@
 // writes evidence/REPORT.md: one table row per check (check | plan row | result | raw path), the
 // exact commands with exit codes and durations, and every raw record path.
 //
-// Wording in the report follows the contract: a PASS reads "在<方法>下未观测到…", never "没有"
-// or "只读"; what each method does not prove is in contract/README.md.
+// Wording in the report follows the contract: a PASS reads "... not observed under <method>", never
+// "none" or "read-only"; what each method does not prove is in contract/README.md.
 //
 //   node evidence/collect.mjs [--run-dir <dir>] [--report <file>] [--skip-tests] [--skip-e2e] [--no-baseline]
 // The run directory defaults to testRunsRoot()\collect-<random>. Exit 0 when every row is PASS or
@@ -98,7 +98,7 @@ export function planRowFor(check) {
   if (/^env\(/.test(check)) return '#42';
   if (/^node --test/.test(check)) return '§13.4';
   if (/^e2e/.test(check)) return '§12.3 / §13.4';
-  if (/^cleanup/.test(check)) return '硬规则（不留进程）';
+  if (/^cleanup/.test(check)) return 'Hard rule (no leftover processes)';
   return '-';
 }
 
@@ -112,48 +112,48 @@ export function quoteArg(a) { return /[\s"*?]/.test(a) ? `"${a.replace(/"/g, '\\
 export function renderReport({ takenAt, runDir, nodeVersion, platform, rows, stages, notes = [] }) {
   const n = (k) => rows.filter((r) => r.kind === k).length;
   const L = [];
-  L.push('# 证据报告');
+  L.push('# Evidence Report');
   L.push('');
-  L.push(`生成：${takenAt}　平台：${platform}　Node：${nodeVersion}`);
-  L.push(`运行目录：${code(runDir)}`);
+  L.push(`Generated: ${takenAt} | Platform: ${platform} | Node: ${nodeVersion}`);
+  L.push(`Run directory: ${code(runDir)}`);
   L.push('');
-  L.push('措辞：PASS 一律写成「在<方法>下未观测到…」，不等于「没有发生」；每种方法证明什么、不证明什么见 `contract/README.md`。write-log 是房间自报的，独立复核（ProcMon / ETW）在 P3。');
+  L.push('Wording: PASS lines always read "... not observed under <method>", which does not prove absolute absence; what each method proves and does not prove is documented in `contract/README.md`. The write-log is self-reported by the room; independent verification (ProcMon / ETW) is scheduled for P3.');
   L.push('');
-  L.push(`合计：PASS ${n('PASS')}　FAIL ${n('FAIL')}　SKIP ${n('SKIP')}`);
+  L.push(`Total: PASS ${n('PASS')} | FAIL ${n('FAIL')} | SKIP ${n('SKIP')}`);
   L.push('');
-  L.push('| 检查 | 方案条目 | 结果 | 原始记录 |');
+  L.push('| Check | Clause | Result | Raw Record |');
   L.push('|---|---|---|---|');
   for (const r of rows) L.push(`| ${cell(r.check)} | ${cell(r.plan)} | **${r.kind}** ${cell(r.text)} | ${r.raws.map((p) => code(p)).join('<br>')} |`);
   L.push('');
   const failed = rows.filter((r) => r.kind === 'FAIL');
   if (failed.length) {
-    L.push('## 失败明细');
+    L.push('## Failure Details');
     L.push('');
     for (const r of failed) {
-      L.push(`- **${r.check}**：${r.text}`);
+      L.push(`- **${r.check}**: ${r.text}`);
       for (const d of (r.details || []).slice(0, 40)) L.push(`  - ${d}`);
     }
     L.push('');
   }
-  L.push('## 命令（按执行顺序）');
+  L.push('## Commands (in execution order)');
   L.push('');
   stages.forEach((s, i) => {
-    L.push(`${i + 1}. 工作目录 ${code(s.cwd)}`);
+    L.push(`${i + 1}. Working directory ${code(s.cwd)}`);
     L.push('');
     L.push('   ```');
     L.push(`   ${s.argv.map(quoteArg).join(' ')}`);
     L.push('   ```');
     L.push('');
-    L.push(`   退出码 ${s.code === null ? '无（' + (s.timedOut ? '超时' : s.spawnError || '未知') + '）' : s.code}，耗时 ${(s.durationMs / 1000).toFixed(1)} s，完整输出 ${code(s.log)}`);
+    L.push(`   Exit code ${s.code === null ? 'none (' + (s.timedOut ? 'timed out' : s.spawnError || 'unknown') + ')' : s.code}, duration ${(s.durationMs / 1000).toFixed(1)} s, full output ${code(s.log)}`);
     L.push('');
   });
   if (notes.length) {
-    L.push('## 说明');
+    L.push('## Notes');
     L.push('');
     for (const x of notes) L.push(`- ${x}`);
     L.push('');
   }
-  L.push('## 各阶段原始记录');
+  L.push('## Raw Records by Stage');
   L.push('');
   for (const s of stages) {
     if (!s.raws || !s.raws.length) continue;
@@ -193,14 +193,14 @@ export async function main(argv, { out } = {}) {
   try { servicesBefore = await findRoomServiceProcesses(); } catch { /* reported by the cleanup row */ }
 
   const stage = async (name, argvChild, { timeoutMs = 10 * 60 * 1000 } = {}) => {
-    rep.info(`collect(stage): ${name} 开始`);
+    rep.info(`collect(stage): ${name} started`);
     const r = await spawnClean(node, argvChild, { cwd: REPO_ROOT, env: { ...process.env }, timeoutMs, maxOutputBytes: 32 << 20 });
     const log = path.join(runDir, `${name.replace(/[^A-Za-z0-9_-]+/g, '-')}.log`);
     const text = `${r.stdout}${r.stderr ? `\n--- stderr ---\n${r.stderr}` : ''}${r.spawnError ? `\nSPAWN_ERROR ${r.spawnError}` : ''}`;
     guard.writeFile(log, text);
     const s = { name, argv: [node, ...argvChild], cwd: REPO_ROOT, code: r.code, durationMs: r.durationMs, timedOut: r.timedOut, spawnError: r.spawnError, truncated: r.truncated, log, stdout: r.stdout, stderr: r.stderr, raws: [] };
     stages.push(s);
-    rep.info(`collect(stage): ${name} 退出 ${r.code}${r.timedOut ? '（超时）' : ''}，${(r.durationMs / 1000).toFixed(1)} s`);
+    rep.info(`collect(stage): ${name} exited ${r.code}${r.timedOut ? ' (timed out)' : ''}, ${(r.durationMs / 1000).toFixed(1)} s`);
     rep.raw(log);
     return s;
   };
@@ -213,28 +213,28 @@ export async function main(argv, { out } = {}) {
     const parsed = parseContractLines(s.stdout);
     s.raws = parsed.raws;
     for (const c of parsed.checks) addRow({ check: c.check, plan: planRowFor(c.check), kind: c.kind, text: c.text, details: c.details, raws: [...pickRaw(c.check, parsed.raws), s.log] });
-    if (parsed.checks.length === 0) addRow({ check: s.name, plan: '-', kind: 'FAIL', text: `脚本未输出任何 PASS/FAIL 行（退出 ${s.code}）`, raws: [s.log] });
-    else if (s.code !== 0 && !parsed.checks.some((c) => c.kind === 'FAIL')) addRow({ check: s.name, plan: '-', kind: 'FAIL', text: `退出码 ${s.code} 但没有 FAIL 行`, raws: [s.log] });
+    if (parsed.checks.length === 0) addRow({ check: s.name, plan: '-', kind: 'FAIL', text: `script emitted no PASS/FAIL lines (exit ${s.code})`, raws: [s.log] });
+    else if (s.code !== 0 && !parsed.checks.some((c) => c.kind === 'FAIL')) addRow({ check: s.name, plan: '-', kind: 'FAIL', text: `exit code ${s.code} without any FAIL line`, raws: [s.log] });
   };
 
   // 1. unit / case / mutation tests
-  if (args.skipTests) addRow({ check: 'node --test', plan: planRowFor('node --test'), kind: 'SKIP', text: '已用 --skip-tests 跳过', raws: [] });
+  if (args.skipTests) addRow({ check: 'node --test', plan: planRowFor('node --test'), kind: 'SKIP', text: 'skipped via --skip-tests', raws: [] });
   else {
     const s = await stage('node-test', ['--test', '--test-reporter=tap', 'test/**/*.test.mjs'], { timeoutMs: 20 * 60 * 1000 });
     const t = parseTapSummary(s.stdout);
     const ok = s.code === 0 && t.fail === 0 && t.pass !== null;
-    const text = t.pass === null ? `未解析到 TAP 汇总（退出 ${s.code}${s.timedOut ? '，超时' : ''}）` : `${t.pass}/${t.tests} 通过，失败 ${t.fail}，跳过 ${t.skipped || 0}，取消 ${t.cancelled || 0}`;
+    const text = t.pass === null ? `TAP summary not parsed (exit ${s.code}${s.timedOut ? ', timed out' : ''})` : `${t.pass}/${t.tests} passed, ${t.fail} failed, ${t.skipped || 0} skipped, ${t.cancelled || 0} cancelled`;
     addRow({ check: 'node --test', plan: planRowFor('node --test'), kind: ok ? 'PASS' : 'FAIL', text, details: t.failures.map((f) => `${'  '.repeat(f.depth)}not ok ${f.name}`), raws: [s.log] });
   }
 
   // 2. scripted-seat end to end
-  if (args.skipE2e) addRow({ check: 'e2e', plan: planRowFor('e2e'), kind: 'SKIP', text: '已用 --skip-e2e 跳过', raws: [] });
+  if (args.skipE2e) addRow({ check: 'e2e', plan: planRowFor('e2e'), kind: 'SKIP', text: 'skipped via --skip-e2e', raws: [] });
   else {
     const s = await stage('e2e', ['test/e2e.mjs'], { timeoutMs: 10 * 60 * 1000 });
     const e = parseE2eSummary(`${s.stdout}\n${s.stderr}`);
     const ok = s.code === 0 && e.pass !== null && e.pass === e.total;
-    addRow({ check: 'e2e', plan: planRowFor('e2e'), kind: ok ? 'PASS' : 'FAIL', text: e.pass === null ? `未跑完、无汇总行（退出 ${s.code}）；中断前 PASS ${e.passLines} 项、FAIL ${e.failures.length} 项${e.crash ? `；异常：${e.crash.slice(0, 160)}` : ''}` : `${e.pass}/${e.total} 通过`, details: e.failures, raws: [s.log] });
-    notes.push('test/e2e.mjs 的临时目录在 testRunsRoot()\\e2e-<随机> 下（不在本运行目录里），全部通过后由它自己删除、失败时保留供检查；本收集器与契约脚本的临时目录也都在 testRunsRoot() 之下。');
+    addRow({ check: 'e2e', plan: planRowFor('e2e'), kind: ok ? 'PASS' : 'FAIL', text: e.pass === null ? `did not finish, no summary line (exit ${s.code}); before abort: ${e.passLines} PASS, ${e.failures.length} FAIL${e.crash ? `; error: ${e.crash.slice(0, 160)}` : ''}` : `${e.pass}/${e.total} passed`, details: e.failures, raws: [s.log] });
+    notes.push('Temporary directories for test/e2e.mjs live under testRunsRoot()\\e2e-<random> (outside this run directory), are removed automatically when all checks pass, and are kept on failure for inspection; this collector and the contract scripts also keep their temporary directories under testRunsRoot().');
   }
 
   // 3-5. contract scripts against a fresh scripted room
@@ -249,11 +249,11 @@ export async function main(argv, { out } = {}) {
   try {
     const live = await findRoomServiceProcesses();
     const leftover = live.filter((p) => !servicesBefore.some((b) => b.pid === p.pid && b.cmd === p.cmd));
-    if (leftover.length === 0) addRow({ check: 'cleanup(processes)', plan: planRowFor('cleanup'), kind: 'PASS', text: `在命令行枚举下未观测到本次收集期间起的、仍在运行的 room.mjs serve 进程（开始前已有 ${servicesBefore.length} 个，不计）`, raws: [] });
-    else addRow({ check: 'cleanup(processes)', plan: planRowFor('cleanup'), kind: 'FAIL', text: `本次收集期间起的 room.mjs serve 仍在运行：${leftover.map((p) => `${p.pid} ${p.cmd.slice(0, 160)}`).join('；')}`, raws: [] });
-  } catch (e) { addRow({ check: 'cleanup(processes)', plan: planRowFor('cleanup'), kind: 'FAIL', text: `无法枚举进程：${e.message}`, raws: [] }); }
+    if (leftover.length === 0) addRow({ check: 'cleanup(processes)', plan: planRowFor('cleanup'), kind: 'PASS', text: `live room.mjs serve processes started during this collection were not observed under command-line enumeration (${servicesBefore.length} already running beforehand, excluded)`, raws: [] });
+    else addRow({ check: 'cleanup(processes)', plan: planRowFor('cleanup'), kind: 'FAIL', text: `room.mjs serve processes started during this collection are still running: ${leftover.map((p) => `${p.pid} ${p.cmd.slice(0, 160)}`).join('; ')}`, raws: [] });
+  } catch (e) { addRow({ check: 'cleanup(processes)', plan: planRowFor('cleanup'), kind: 'FAIL', text: `could not enumerate processes: ${e.message}`, raws: [] }); }
 
-  notes.push('control-run 的 PASS 只覆盖「不开 agent、脚本席位」这一场；真实 agent 入席时的同类比对属于 §12.3 的真实层，由维护者在本机另跑。');
+  notes.push('A PASS from control-run covers only the scripted-seat round (no real agent launched); equivalent comparisons with real agents seated belong to the §12.3 real-agent tier and are run separately by the maintainer.');
   const md = renderReport({ takenAt: new Date().toISOString(), runDir, nodeVersion: process.version, platform: `${process.platform}-${process.arch}`, rows, stages, notes });
   guard.writeFile(path.join(runDir, 'REPORT.md'), md);
   guard.writeFile(reportPath, md);

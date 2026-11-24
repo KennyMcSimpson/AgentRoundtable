@@ -13,13 +13,13 @@
 //                 and the room's own variables when it starts, so a canary key still present at
 //                 exit is a failure of that clause even though the seat command spawns nothing;
 //   3. spawnClean - spawn a probe child through lib/spawn.mjs from a polluted parent and assert its
-//                 environment holds only whitelisted keys, the explicitly passed one and (on
-//                 Windows) the variables libuv re-adds by itself (IMPLICIT_WIN32_VARS).
+//                 environment holds only whitelisted keys, the explicitly passed one and platform-
+//                 implicit variables re-added by libuv/OS (IMPLICIT_WIN32_VARS / IMPLICIT_DARWIN_VARS).
 // Also observed from source: whether lib/seat.mjs imports child_process at all.
 //
 // What this does NOT prove: that a secret never reached memory of some process, that a key not on
 // the canary list did not leak (only planted values are searched), or anything about processes the
-// room did not start. Wording: "未观测到".
+// room did not start. Wording: "not observed".
 //
 //   node contract/env.mjs [--room <roomDir> --seat <seatDir>] [--run-dir <dir>]
 // Without --room a throwaway room is built under testRunsRoot()\env-<random>. Exit 0/1.
@@ -27,7 +27,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { spawnClean, ENV_WHITELIST as SPAWN_WHITELIST, IMPLICIT_WIN32_VARS } from '../lib/spawn.mjs';
+import { spawnClean, ENV_WHITELIST as SPAWN_WHITELIST, IMPLICIT_WIN32_VARS, IMPLICIT_DARWIN_VARS } from '../lib/spawn.mjs';
 import { REPO_ROOT, openRunDir, passThroughEnv, runRoom, createReporter, runCli } from './harness.mjs';
 
 const SEAT_SRC = path.join(REPO_ROOT, 'lib', 'seat.mjs');
@@ -153,7 +153,7 @@ export async function main(argv, { out } = {}) {
     ];
     for (const [label, a] of steps) {
       const r = await run(label, a);
-      if (r.code !== 0) rep.fail(`env(setup): ${label} 退出 ${r.code}: ${head(r.stdout + r.stderr)}`);
+      if (r.code !== 0) rep.fail(`env(setup): ${label} exited ${r.code}: ${head(r.stdout + r.stderr)}`);
     }
     seatDir = path.join(roomDir, 'seats', 'A');
   }
@@ -166,8 +166,8 @@ export async function main(argv, { out } = {}) {
   const status = await run('seat status', ['status', '--seat', seatDir], probedEnv);
   const wait = await run('seat wait', ['wait', '--seat', seatDir, '--timeout', '0'], probedEnv);
   const seatOk = status.code === 0 && /^STATUS/m.test(status.stdout) && wait.code === 0;
-  if (seatOk) rep.pass(`env(seat-run): status 与 wait 在污染环境下正常返回（${head(status.stdout.split('\n')[0], 80)} / ${head(wait.stdout.split('\n')[0], 40)}）`);
-  else rep.fail(`env(seat-run): 席位命令异常 status=${status.code} wait=${wait.code}: ${head(status.stdout + status.stderr + wait.stdout + wait.stderr)}`);
+  if (seatOk) rep.pass(`env(seat-run): status and wait returned normally under a polluted environment (${head(status.stdout.split('\n')[0], 80)} / ${head(wait.stdout.split('\n')[0], 40)})`);
+  else rep.fail(`env(seat-run): seat command error status=${status.code} wait=${wait.code}: ${head(status.stdout + status.stderr + wait.stdout + wait.stderr)}`);
 
   // ---- 1. scan everything the room produced for the canary values ----
   const files = [...walkFiles(roomDir), ...(outbox ? walkFiles(outbox) : [])];
@@ -178,29 +178,35 @@ export async function main(argv, { out } = {}) {
     for (const k of findCanaries(text, canaries)) hits.push(`${k} in ${f}`);
   }
   for (const t of transcripts) for (const k of findCanaries(t.stdout + t.stderr, canaries)) hits.push(`${k} in stdout/stderr of ${t.label}`);
-  if (hits.length === 0) rep.pass(`env(outputs): 扫描 ${files.length} 个文件（房间目录 + 发件箱，含 write-log 与 packets）与 ${transcripts.length} 段子进程输出，在字符串扫描方法下未观测到 ${Object.keys(canaries).length} 个注入的 canary 密钥值`);
-  else { rep.fail(`env(outputs): 在字符串扫描方法下观测到 canary 值 ${hits.length} 处`); for (const h of hits) rep.detail(h); }
+  if (hits.length === 0) rep.pass(`env(outputs): scanned ${files.length} files (room directory + outbox, including write-log and packets) and ${transcripts.length} child transcripts; the ${Object.keys(canaries).length} injected canary secret values were not observed under string scanning`);
+  else { rep.fail(`env(outputs): ${hits.length} canary value occurrences were observed under string scanning`); for (const h of hits) rep.detail(h); }
 
   // ---- observed from source: does the seat command spawn anything? ----
   let seatSrc = '';
   try { seatSrc = fs.readFileSync(SEAT_SRC, 'utf8'); } catch { /* seat source missing */ }
   const importsChildProcess = /child_process/.test(seatSrc);
   const importsSpawn = /spawn\.mjs/.test(seatSrc);
-  rep.info(`env(seat-source): lib/seat.mjs ${importsChildProcess ? '导入了 child_process' : '未导入 child_process'}${importsSpawn ? '，经 lib/spawn.mjs 派生子进程' : '，未导入 lib/spawn.mjs'}（源码观测）`);
+  rep.info(`env(seat-source): lib/seat.mjs ${importsChildProcess ? 'imports child_process' : 'does not import child_process'}${importsSpawn ? ' and spawns children via lib/spawn.mjs' : ' and does not import lib/spawn.mjs'} (source observation)`);
 
   // ---- 2. the seat process's own environment at start and at exit ----
   const probes = [status, wait].flatMap((t) => parseProbeLines(t.stderr).map((p) => ({ ...p, label: t.label })));
   const exits = probes.filter((p) => p.phase === 'exit');
   const starts = probes.filter((p) => p.phase === 'start');
-  if (exits.length === 0) rep.skip('env(seat-exit): 探针未输出退出时的环境（NODE_OPTIONS --import 未生效？），席位进程自身环境未观测');
+  if (exits.length === 0) rep.skip('env(seat-exit): probe did not emit exit environment (NODE_OPTIONS --import ineffective?); seat process own environment not observed');
   else {
     const inheritedAtStart = [...new Set(starts.flatMap((p) => canaryKeysIn(p.keys)))];
     const leftAtExit = [...new Set(exits.flatMap((p) => canaryKeysIn(p.keys)))];
-    const tolerated = [...ENV_WHITELIST, ...(process.platform === 'win32' ? IMPLICIT_WIN32_VARS : []), 'NODE_OPTIONS', ...Object.keys(passThroughEnv())];
+    const tolerated = [
+      ...ENV_WHITELIST,
+      ...(process.platform === 'win32' ? IMPLICIT_WIN32_VARS : []),
+      ...(process.platform === 'darwin' ? IMPLICIT_DARWIN_VARS : []),
+      'NODE_OPTIONS',
+      ...Object.keys(passThroughEnv()),
+    ];
     const extrasAtExit = [...new Set(exits.flatMap((p) => extraEnvKeys(Object.fromEntries(p.keys.map((k) => [k, ''])), tolerated)))];
-    rep.info(`env(seat-exit): 启动时继承的 canary 变量 ${inheritedAtStart.length}/${CANARY_KEYS.length}（预期：席位命令是 agent 的子进程，会继承）`);
-    if (leftAtExit.length === 0) rep.pass(`env(seat-exit): ${exits.length} 个席位进程退出时，在 NODE_OPTIONS 预载探针方法下未观测到继承的 canary 变量${extrasAtExit.length ? `（其他白名单外变量名：${extrasAtExit.join(',')}）` : ''}`);
-    else rep.fail(`env(seat-exit): ${exits.length} 个席位进程退出时环境仍含继承的 canary 变量 [${leftAtExit.join(',')}]（方案 §1.6 第 3 条要求 room 启动时清空白名单外环境；本项只记变量名，不记值）`);
+    rep.info(`env(seat-exit): inherited canary variables at start: ${inheritedAtStart.length}/${CANARY_KEYS.length} (expected: seat commands run as children of the agent and inherit them)`);
+    if (leftAtExit.length === 0) rep.pass(`env(seat-exit): across ${exits.length} exiting seat processes, inherited canary variables were not observed under the NODE_OPTIONS preload probe${extrasAtExit.length ? ` (other non-whitelisted variable names: ${extrasAtExit.join(',')})` : ''}`);
+    else rep.fail(`env(seat-exit): ${exits.length} exiting seat processes still contained inherited canary variables [${leftAtExit.join(',')}] (plan §1.6 clause 3 requires room to clear non-whitelisted env at startup; only variable names are recorded, never values)`);
   }
 
   // ---- 3. spawnClean whitelist ----
@@ -211,16 +217,19 @@ export async function main(argv, { out } = {}) {
   try {
     const r = await spawnClean(process.execPath, [probe], { cwd: runDir, env: { ROOM_PROBE_EXPLICIT: '1' }, timeoutMs: 20000, maxOutputBytes: 1 << 20 });
     const env = firstJsonObject(r.stdout);
-    if (!env) rep.fail(`env(spawnClean): 子进程未输出可解析的环境 JSON（exit ${r.code} ${r.spawnError || ''}）`);
+    if (!env) rep.fail(`env(spawnClean): child did not emit parseable environment JSON (exit ${r.code} ${r.spawnError || ''})`);
     else {
-      const implicit = process.platform === 'win32' ? [...IMPLICIT_WIN32_VARS] : [];
+      const implicit = [
+        ...(process.platform === 'win32' ? IMPLICIT_WIN32_VARS : []),
+        ...(process.platform === 'darwin' ? IMPLICIT_DARWIN_VARS : []),
+      ];
       const extras = extraEnvKeys(env, [...ENV_WHITELIST, ...implicit], ['ROOM_PROBE_EXPLICIT']);
       const leakedValues = findCanaries(JSON.stringify(env), canaries);
-      const implicitSeen = implicit.filter((k) => Object.keys(env).some((e) => e.toUpperCase() === k) && !ENV_WHITELIST.some((w) => w.toUpperCase() === k));
-      if (extras.length === 0 && leakedValues.length === 0) rep.pass(`env(spawnClean): 子进程环境 ${Object.keys(env).length} 个变量 [${Object.keys(env).sort().join(',')}]，在 spawnClean 方法下未观测到白名单之外的变量或继承的 canary 值${implicitSeen.length ? `（libuv 自行补入：${implicitSeen.join(',')}）` : ''}`);
-      else rep.fail(`env(spawnClean): 白名单外变量 [${extras.join(',')}] canary 值 [${leakedValues.join(',')}]`);
+      const implicitSeen = implicit.filter((k) => Object.keys(env).some((e) => foldKey(e) === foldKey(k)) && !ENV_WHITELIST.some((w) => foldKey(w) === foldKey(k)));
+      if (extras.length === 0 && leakedValues.length === 0) rep.pass(`env(spawnClean): child environment had ${Object.keys(env).length} variables [${Object.keys(env).sort().join(',')}]; non-whitelisted variables or inherited canary values were not observed under spawnClean${implicitSeen.length ? ` (implicitly added by OS/libuv: ${implicitSeen.join(',')})` : ''}`);
+      else rep.fail(`env(spawnClean): non-whitelisted variables [${extras.join(',')}] canary values [${leakedValues.join(',')}]`);
     }
-  } catch (e) { rep.fail(`env(spawnClean): 调用失败：${e.message}`); }
+  } catch (e) { rep.fail(`env(spawnClean): invocation failed: ${e.message}`); }
   finally { for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } }
 
   rep.raw(logPath);

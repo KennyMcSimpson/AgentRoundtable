@@ -161,8 +161,8 @@ test('validateRoom: warnings do not block', () => {
 // ---- validateDivisionRound (#32) ----
 test('validateDivisionRound: valid sheet; acceptance commands collected', () => {
   const r = validateDivisionRound(n3(), [
-    { seatId: 'B', text: '实现 parser', acceptance: [['node', '--test', 'parser.test.mjs']] },
-    { seatId: 'C', text: '实现 CLI 入口', acceptance: [['node', 'cli.mjs', '--help']] },
+    { seatId: 'B', text: 'Implement parser', acceptance: [['node', '--test', 'parser.test.mjs']] },
+    { seatId: 'C', text: 'Implement CLI entrypoint', acceptance: [['node', 'cli.mjs', '--help']] },
   ]);
   assert.equal(r.ok, true, JSON.stringify(r.errors));
   assert.equal(r.warnings.length, 0);
@@ -327,14 +327,14 @@ test('tainted #9: a write or an unknown command in a reviewer turn taints; unaud
   assert.equal(tainted({ tainted: true }), true);
 });
 
-test('auditLabel: never says 只读', () => {
+test('auditLabel: never says read-only', () => {
   assert.equal(auditLabel(null).code, 'unaudited');
-  assert.equal(auditLabel({ status: 'unknown', writes: [] }).text, '未审计');
+  assert.equal(auditLabel({ status: 'unknown', writes: [] }).text, 'Unaudited');
   assert.equal(auditLabel({ status: 'present_in_native', writes: [{}] }).code, 'tainted');
   const clean = auditLabel({ status: 'header_only', writes: [], unknownCommands: [] });
   assert.equal(clean.code, 'no_write_observed');
-  assert.ok(!clean.text.includes('只读'));
-  assert.ok(clean.text.includes('未观测到'));
+  assert.ok(!/read-only/i.test(clean.text));
+  assert.ok(clean.text.includes('No writes observed'));
 });
 
 // ---- allowlist ----
@@ -369,7 +369,7 @@ test('sameArgv', () => {
 
 // ---- disclosure state machine (#25, #26, #30) ----
 test('requestDisclosure #26: argv outside the allowlist is denied by the room', () => {
-  const r = requestDisclosure({ argv: ['git', 'push'], reason: '想推', allowlist: [['git', 'diff']], seatId: 'A', attemptId: 'a1', id: 'd1', now: 't0' });
+  const r = requestDisclosure({ argv: ['git', 'push'], reason: 'want to push', allowlist: [['git', 'diff']], seatId: 'A', attemptId: 'a1', id: 'd1', now: 't0' });
   assert.equal(r.status, 'denied');
   assert.equal(r.allowed, false);
   assert.equal(r.denyReason, 'NOT_IN_ALLOWLIST');
@@ -382,7 +382,7 @@ test('requestDisclosure #26: argv outside the allowlist is denied by the room', 
 });
 
 test('requestDisclosure: acceptance command from the task sheet is allowed', () => {
-  const r = requestDisclosure({ argv: ['node', '--test', 'parser.test.mjs'], reason: '验收', allowlist: [['git', 'diff']], acceptanceCommands: [['node', '--test', 'parser.test.mjs']], seatId: 'A', attemptId: 'a1' });
+  const r = requestDisclosure({ argv: ['node', '--test', 'parser.test.mjs'], reason: 'acceptance check', allowlist: [['git', 'diff']], acceptanceCommands: [['node', '--test', 'parser.test.mjs']], seatId: 'A', attemptId: 'a1' });
   assert.equal(r.status, 'requested');
   assert.equal(r.allowed, true);
   assert.deepEqual(r.matched, ['node', '--test', 'parser.test.mjs']);
@@ -471,7 +471,7 @@ test('requestDisclosure NI-11: trailing arguments that write or read outside the
     assert.equal(r.allowed, false, JSON.stringify(argv));
     assert.equal(r.deniedBy, 'room');
     assert.equal(r.denyReason, 'ARG_NOT_ALLOWED', JSON.stringify(argv));
-    assert.ok(r.message.includes('参数'), r.message);
+    assert.ok(r.message.includes('Argument not allowed'), r.message);
     assert.equal(approveDisclosure(r).ok, false);
   }
   const good = [
@@ -550,10 +550,10 @@ test('executeDisclosure NI-11: an approved argv that breaks the argument rule ne
 
 test('denyDisclosure: requested or approved -> denied', () => {
   const req = requestDisclosure({ argv: ['git', 'status'], allowlist: DEFAULT_ALLOWLIST, id: 'd4', now: 't0' });
-  const d = denyDisclosure(req, { by: 'admin', reason: '不需要', now: 't1' });
+  const d = denyDisclosure(req, { by: 'admin', reason: 'not needed', now: 't1' });
   assert.equal(d.ok, true);
   assert.equal(d.request.status, 'denied');
-  assert.equal(d.request.denyReason, '不需要');
+  assert.equal(d.request.denyReason, 'not needed');
   assert.equal(canExecuteDisclosure(d.request).reason, 'NOT_APPROVED');
   const ap = approveDisclosure(req).request;
   assert.equal(denyDisclosure(ap).request.status, 'denied');
@@ -607,12 +607,12 @@ test('rejectRateSignal #28: 7 rooms x 2 pass -> suspicious; fewer -> insufficien
   assert.equal(s.rooms, 7);
   assert.ok(Math.abs(s.probability - Math.pow(0.8, 14)) < 1e-12);
   assert.ok(s.probability > 0.043 && s.probability < 0.045, 'about 4.4%');
-  assert.ok(s.message.includes('审方可能没在工作'));
+  assert.ok(s.message.includes('Reviewer may not be catching issues'));
 
   const few = rejectRateSignal(entries.slice(0, 13), { reviewerAgent: 'codex', preset: 'implement-review' });
   assert.equal(few.status, 'insufficient');
   assert.equal(few.n, 13);
-  assert.ok(few.message.includes('样本不足'));
+  assert.ok(few.message.includes('Insufficient samples'));
 
   const withReject = rejectRateSignal([...entries, { roomId: 'p8', reviewerAgent: 'codex', preset: 'implement-review', verdict: 'reject' }], { reviewerAgent: 'codex', preset: 'implement-review' });
   assert.equal(withReject.status, 'ok');

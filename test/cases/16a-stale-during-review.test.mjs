@@ -1,4 +1,4 @@
-// Plan §13.1 #16a (仿真 + 真实 +变异; this file is the simulation layer). Mutation:
+// Plan §13.1 #16a (simulation + real + mutation; this file is the simulation layer). Mutation:
 // test/mutations/16a-no-recompute.test.mjs. The artifact is edited from outside (the executor's
 // working directory, not through the room) after it was frozen and before the reviewer's verdict.
 import { test } from 'node:test';
@@ -14,27 +14,27 @@ export async function scenario({ mutate, edit = true } = {}) {
       { seatId: 'B', role: 'executor', files: { 'src/app.mjs': 'export const x = 1;\n', 'README.md': '# demo\n' } },
     ],
   });
-  await sim.admin({ cmd: 'task', text: '实现 app.mjs' });
+  await sim.admin({ cmd: 'task', text: 'Implement app.mjs' });
   await sim.admin({ cmd: 'start' });
   const B = createScriptedSeat({
     seatId: 'B',
     script: [
       { wait: {} },
       { artifacts: { paths: ['src', 'README.md'] } },
-      { submit: 'B：实现完成，改了 src/app.mjs' },
+      { submit: 'B: implementation complete, modified src/app.mjs' },
       { wait: {} },
-      { submit: 'B：汇报完毕' },
+      { submit: 'B: report complete' },
     ],
   });
   const A = createScriptedSeat({
     seatId: 'A',
     script: [
       { wait: {} },
-      { submit: 'A：开题，B 请汇报' },
+      { submit: 'A: opening, B please report' },
       { wait: {} },
-      ...(edit ? [{ editFile: { seat: 'B', path: 'src/app.mjs', text: 'export const x = 2; // 审查途中被改\n' } }] : []),
-      { verdict: 'pass', artifact: (s, sim) => sim.latestManifest('B'), text: '符合验收' },
-      { submit: 'A：汇总' },
+      ...(edit ? [{ editFile: { seat: 'B', path: 'src/app.mjs', text: 'export const x = 2; // modified during review\n' } }] : []),
+      { verdict: 'pass', artifact: (s, sim) => sim.latestManifest('B'), text: 'Meets acceptance criteria' },
+      { submit: 'A: summary' },
     ],
   });
   await sim.run([A, B]);
@@ -56,12 +56,12 @@ export function invariants({ sim, sha }) {
 }
 
 if (isMain(import.meta.url)) {
-  test('#16a 审查中改产物：复算发现变化，verdict 记 stale；汇总不含', async () => {
+  test('#16a Artifact edited during review: recompute detects changes, verdict annotated stale and excluded from summary', async () => {
     const r = await scenario();
     await r.sim.check(() => invariants(r));
   });
 
-  test('#16a 对照：审查中没有改产物时 verdict 不是 stale 并进入汇总', async () => {
+  test('#16a Control: when artifact is unchanged during review, verdict is not stale and enters summary', async () => {
     const r = await scenario({ edit: false });
     await r.sim.check(() => {
       const vr = r.sim.lastEvent('verdict_recorded');

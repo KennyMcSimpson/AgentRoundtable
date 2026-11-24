@@ -13,7 +13,7 @@ import { parseMarkers, resolveSubmission } from '../lib/structured.mjs';
 import { SEAT_COMMANDS } from '../lib/seat.mjs';
 
 // A command line, a seat-command flag or an unfilled placeholder: none may reach a tool or hosted seat.
-const CLI_LEAK = /room\.mjs|room\.cmd|--(?:seat|attempt|file|declare|seq|text|item|status|artifact|arg|argv-file|reason|log|baseline|exclude)\b|子命令|\{\{/;
+const CLI_LEAK = /room\.mjs|room\.cmd|--(?:seat|attempt|file|declare|seq|text|item|status|artifact|arg|argv-file|reason|log|baseline|exclude)\b|subcommand|\{\{/;
 const CLI_ONLY = /\{\{\s*(roomCmd|seatDir)\s*\}\}/;
 const T = loadTemplates().templates;
 const fragments = (kind) => Object.values(SURFACE_FRAGMENTS[kind]).flat();
@@ -82,14 +82,14 @@ test('fragments and lines lint clean, leak no command line, and name only real a
     // turnSubmit is filled by seat.mjs with the same replace; no other line has a placeholder.
     for (const x of Object.values(SURFACE_LINES[kind])) assert.doesNotMatch(x.replace('{{attemptId}}', 'a1'), CLI_LEAK, x);
   }
-  for (const x of texts('hosted')) assert.ok(!x.includes('房间工具'), x);
+  for (const x of texts('hosted')) assert.ok(!x.includes('{{toolName}}') && !x.includes('room tool {'), x);
   const KEYS = new Set(['action', 'room', 'attempt', 'text', 'seq', 'item', 'status', 'value', 'artifact', 'argv', 'reason', 'paths']);
   const actions = new Set();
   for (const x of texts('tool')) {
     for (const m of x.matchAll(/"([A-Za-z_]+)":/g)) assert.ok(KEYS.has(m[1]), `key ${m[1]} in ${x}`);
     for (const m of x.matchAll(/"action":"([^"]+)"/g)) actions.add(m[1]);
-    // The preamble also lists the actions as a pipe list ("action 取 wait|submit|...").
-    for (const m of x.matchAll(/action 取 ([a-z|]+)/g)) for (const a of m[1].split('|')) actions.add(a);
+    // The preamble also lists the actions as a pipe list ("action in wait|submit|...").
+    for (const m of x.matchAll(/action in ([a-z|]+)/g)) for (const a of m[1].split('|')) actions.add(a);
   }
   assert.ok(actions.has('leave') && actions.has('wait'), 'the preamble pipe list is read');
   assert.ok(actions.size >= 10);
@@ -106,7 +106,7 @@ test('hosted marker examples parse once their placeholders are filled, and not b
   const count = (r) => ({ VERDICT: r.verdicts.length, DISCLOSE: r.disclose.length, POINT: r.points.length, QUOTE: r.quotes.length, MARK: r.marks.length, MISQUOTED: r.misquoted.length, PASS: r.pass ? 1 : 0 });
   const resolve = (x) => resolveSubmission({ textMarkers: parseMarkers(x).markers });
   for (const x of examples) {
-    const filled = x.replace(/seq=N/g, 'seq=2').replace(/<id>/g, 'm2').replace(/<清单sha>/g, 'abc123def');
+    const filled = x.replace(/seq=N/g, 'seq=2').replace(/<id>/g, 'm2').replace(/<manifestSha>/g, 'abc123def');
     const r = resolve(filled);
     assert.equal(r.annotation, 'none', filled);
     const c = count(r);
@@ -115,7 +115,7 @@ test('hosted marker examples parse once their placeholders are filled, and not b
     assert.equal(resolve(x).annotation, ['PASS', 'DISCLOSE'].includes(kindOf(x)) ? 'none' : 'malformed', x);
   }
   assert.equal(resolve('```\n<<ROOM:PASS>>\n```').pass, false, 'a fenced marker does not count');
-  const assign = resolve('<<ROOM:ASSIGN>>\n- B: 实现 | 验收: ["node","--test","x.test.mjs"]\n<<ROOM:END>>');
+  const assign = resolve('<<ROOM:ASSIGN>>\n- B: Implement feature | acceptance: ["node","--test","x.test.mjs"]\n<<ROOM:END>>');
   assert.equal(assign.annotation, 'none');
   assert.equal(assign.assign.assignments.length, 1);
 });
@@ -135,7 +135,7 @@ test('surfaceText: cli returns its input; tool and hosted touch only matched or 
         if (!CLI_ONLY.test(line) && !rules.some((r) => line.startsWith(r.prefix))) assert.equal(out[i], line, `${kind} ${name} line ${i}`);
       });
     }
-    assert.equal(surfaceText('void-notice', '甲\n{{roomCmd}} status --seat {{seatDir}}\n乙', kind), '甲\n乙');
+    assert.equal(surfaceText('void-notice', 'first\n{{roomCmd}} status --seat {{seatDir}}\nsecond', kind), 'first\nsecond');
   }
 });
 

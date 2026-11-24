@@ -1,4 +1,4 @@
-// 圆桌 desktop app: Electron main process (ESM). It opens the lobby (lib/lobby.mjs) in an app window
+// AgentRoundtable desktop app: Electron main process (ESM). It opens the lobby (lib/lobby.mjs) in an app window
 // instead of a browser tab, and each room UI the lobby opens in a window of its own.
 //
 //   - The lobby runs out of the main thread: utilityProcess.fork(<room-dev>/room.mjs, ['lobby',
@@ -29,7 +29,7 @@ const DEVTOOLS = process.env.ROOM_APP_DEVTOOLS === '1';
 
 // ---- data locations, before anything else touches them. An unusable ROOM_DEV_HOME (relative) is
 // refused before any folder is created: a relative one would land under the current directory.
-// Returns a Chinese message when the app cannot start, else null.
+// Returns an error message when the app cannot start, else null.
 function setupDataLocations() {
   if (PATHS.problem) return PATHS.problem;
   try { fs.mkdirSync(PATHS.temp, { recursive: true }); } catch { /* reported by Chromium if it matters */ }
@@ -41,12 +41,12 @@ function setupDataLocations() {
     app.setPath('crashDumps', PATHS.crashDumps);
     app.setAppLogsPath(PATHS.logs);
   } catch (e) {
-    return `圆桌没能把自己的数据目录设到 ${PATHS.userData}：${e && e.message}。请检查环境变量 ROOM_DEV_HOME 或这个目录的权限，然后重新打开圆桌。`;
+    return `AgentRoundtable could not configure its data directory at ${PATHS.userData}: ${e && e.message}. Check the ROOM_DEV_HOME environment variable or directory permissions, then reopen AgentRoundtable.`;
   }
   return null;
 }
 const STARTUP_PROBLEM = setupDataLocations();
-if (!STARTUP_PROBLEM && process.platform === 'win32') app.setAppUserModelId('KennyMcSimpson.RoomDev.Yuanzhuo');
+if (!STARTUP_PROBLEM && process.platform === 'win32') app.setAppUserModelId('KennyMcSimpson.AgentRoundtable');
 
 // ---- logging: redacted, to stdout and appRoot()/app-data/logs/main.log
 function log(line) {
@@ -86,7 +86,7 @@ function webPreferences() {
   };
 }
 
-// ---- startup problem (Chinese dialog, nothing created), then single instance
+// ---- startup problem (error dialog, nothing created), then single instance
 if (STARTUP_PROBLEM) {
   log(`[app] cannot start: ${STARTUP_PROBLEM}`);
   // --smoke runs unattended: no dialog, exit code 1 (there is no appRoot() to write a result into).
@@ -111,7 +111,7 @@ if (STARTUP_PROBLEM) {
   });
   app.on('window-all-closed', () => { shutdown(0); });
   app.on('before-quit', (e) => { if (!quitting) { e.preventDefault(); shutdown(0); } });
-  app.whenReady().then(boot, (e) => fatal(`应用没能启动：${e && e.message}`, 'READY_FAILED'));
+  app.whenReady().then(boot, (e) => fatal(`Application failed to start: ${e && e.message}`, 'READY_FAILED'));
 }
 
 // ---- boot
@@ -119,16 +119,16 @@ async function boot() {
   const ses = session.defaultSession;
   ses.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === 'clipboard-sanitized-write'));
   ses.setPermissionCheckHandler((_wc, permission) => permission === 'clipboard-sanitized-write');
-  // No downloads at all; the room UI's 导出证据 uses IPC room:saveEvidence instead.
+  // No downloads at all; the room UI's Export Evidence uses IPC room:saveEvidence instead.
   ses.on('will-download', (e) => e.preventDefault());
   registerIpc();
 
   const roomDevDir = H.resolveRoomDevDir(APP_DIR);
-  if (!roomDevDir) { fatal(`找不到圆桌的程序文件（room.mjs）。安装可能不完整，请重新构建或解压：${APP_DIR}`, 'NO_ROOM_DEV'); return; }
+  if (!roomDevDir) { fatal(`Could not find AgentRoundtable runtime files (room.mjs). The installation may be incomplete; please rebuild or re-extract: ${APP_DIR}`, 'NO_ROOM_DEV'); return; }
   try {
     lobbyInfo = await startLobbyProcess(roomDevDir);
   } catch (e) {
-    fatal(`圆桌启动器没能启动：${e && e.message}`, 'LOBBY_START_FAILED');
+    fatal(`AgentRoundtable Launcher failed to start: ${e && e.message}`, 'LOBBY_START_FAILED');
     return;
   }
   createMainWindow();
@@ -139,7 +139,7 @@ function startLobbyProcess(roomDevDir) {
     const spec = H.lobbyForkSpec({ roomDevDir, execPath: process.execPath, env: process.env });
     log(`[app] starting the lobby from ${spec.modulePath}`);
     let settled = false;
-    const timer = setTimeout(() => { if (!settled) { settled = true; reject(new Error(`${H.LOBBY_START_TIMEOUT_MS / 1000} 秒内没有收到启动器地址`)); } }, H.LOBBY_START_TIMEOUT_MS);
+    const timer = setTimeout(() => { if (!settled) { settled = true; reject(new Error(`Did not receive the launcher URL within ${H.LOBBY_START_TIMEOUT_MS / 1000} seconds`)); } }, H.LOBBY_START_TIMEOUT_MS);
     try {
       lobby = utilityProcess.fork(spec.modulePath, spec.args, spec.options);
     } catch (e) { clearTimeout(timer); reject(e); return; }
@@ -158,7 +158,7 @@ function startLobbyProcess(roomDevDir) {
       lobbyExited = true;
       lobbyExitCode = code;
       log(`[app] lobby exited with code ${code}`);
-      if (!settled) { settled = true; clearTimeout(timer); reject(new Error(`启动器进程退出了（退出码 ${code}）`)); return; }
+      if (!settled) { settled = true; clearTimeout(timer); reject(new Error(`Launcher process exited early (exit code ${code})`)); return; }
       if (!quitting) lobbyCrashed(code);
     });
   });
@@ -196,7 +196,7 @@ function waitForRoomPort(port, ms) {
 function lobbyCrashed(code) {
   log(`[app] the lobby process ended unexpectedly (code ${code})`);
   if (ARGS.smoke) { writeSmoke(H.buildSmokeResult({ error: `LOBBY_EXITED_${code}` })); shutdown(1); return; }
-  dialog.showErrorBox(H.APP_TITLE, `圆桌启动器进程意外退出（退出码 ${code}）。圆桌将关闭；从启动器打开的房间服务也随之停止。请重新打开圆桌。\n\n日志：${path.join(PATHS.logs, 'main.log')}`);
+  dialog.showErrorBox(H.APP_TITLE, `AgentRoundtable Launcher process exited unexpectedly (exit code ${code}). AgentRoundtable will close, and room services opened from the launcher will stop. Please reopen AgentRoundtable.\n\nLog: ${path.join(PATHS.logs, 'main.log')}`);
   shutdown(1);
 }
 
@@ -245,12 +245,12 @@ function handleOpen(url, fromWin) {
 async function confirmExternal(url, parent) {
   const opts = {
     type: 'question',
-    buttons: ['在浏览器中打开', '取消'],
+    buttons: ['Open in Browser', 'Cancel'],
     defaultId: 1,
     cancelId: 1,
     noLink: true,
     title: H.APP_TITLE,
-    message: '要在默认浏览器里打开这个外部链接吗？',
+    message: 'Open this external link in your default browser?',
     detail: url,
   };
   const r = parent && !parent.isDestroyed() ? await dialog.showMessageBox(parent, opts) : await dialog.showMessageBox(opts);
@@ -276,13 +276,13 @@ function createMainWindow() {
   mainWindow.on('close', (e) => { if (!quitting) { e.preventDefault(); shutdown(0); } });
   mainWindow.on('closed', () => { mainWindow = null; });
   if (ARGS.smoke) mainWindow.webContents.once('did-finish-load', () => { runSmoke().catch((e) => { writeSmoke(H.buildSmokeResult({ error: `SMOKE_FAILED ${e && e.message}` })); shutdown(1); }); });
-  mainWindow.loadURL(H.lobbyLoadUrl(lobbyInfo)).catch((e) => fatal(`启动器页面没能打开：${e && e.message}`, 'LOAD_FAILED'));
+  mainWindow.loadURL(H.lobbyLoadUrl(lobbyInfo)).catch((e) => fatal(`Launcher page failed to load: ${e && e.message}`, 'LOAD_FAILED'));
 }
 
 function openRoomWindow(url, port) {
   const existing = roomWindows.get(port);
   if (existing && !existing.isDestroyed()) { existing.show(); existing.focus(); return; }
-  // 「圆桌 · 房间 · <id>」: page-title-updated stays suppressed (guardContents), so the id stays.
+  // "AgentRoundtable · Room · <id>": page-title-updated stays suppressed (guardContents), so the id stays.
   const title = H.roomWindowTitle(roomPorts.get(port));
   const win = new BrowserWindow({
     title,
@@ -323,20 +323,20 @@ function fromAppWindow(e) {
   return fromMain(e) || !!fromRoomWindow(e);
 }
 
-// 导出证据 from a room window. Downloads stay cancelled for the whole session (will-download), so
+// Export Evidence from a room window. Downloads stay cancelled for the whole session (will-download), so
 // the export goes through a native save dialog that starts in appRoot()/exports; the file is
 // written only where the user confirms. -> {saved: true, path} | {saved: false, canceled: true} |
 // {saved: false, error}.
 async function saveEvidence(e, name, text) {
   const from = fromRoomWindow(e);
-  if (!from) return { saved: false, error: '只有房间窗口可以导出证据' };
-  if (typeof text !== 'string' || !text.length || text.length > H.MAX_EVIDENCE_CHARS) return { saved: false, error: '证据内容为空或过大' };
+  if (!from) return { saved: false, error: 'Only a room window can export evidence' };
+  if (typeof text !== 'string' || !text.length || text.length > H.MAX_EVIDENCE_CHARS) return { saved: false, error: 'Evidence payload is empty or too large' };
   const defaultPath = H.evidenceDefaultPath(PATHS.appRoot, name);
   try { fs.mkdirSync(path.dirname(defaultPath), { recursive: true }); } catch { /* the dialog still opens */ }
   const r = await dialog.showSaveDialog(from.win, {
-    title: '导出证据 JSON',
+    title: 'Export Evidence JSON',
     defaultPath,
-    buttonLabel: '保存',
+    buttonLabel: 'Save',
     filters: [{ name: 'JSON', extensions: ['json'] }],
     properties: ['showOverwriteConfirmation', 'dontAddToRecent'],
   });
@@ -345,7 +345,7 @@ async function saveEvidence(e, name, text) {
     await fs.promises.writeFile(r.filePath, text, 'utf8');
   } catch (err) {
     log(`[app] evidence export failed: ${err && err.code}`);
-    return { saved: false, error: `写入失败：${(err && err.message) || err}` };
+    return { saved: false, error: `Write failed: ${(err && err.message) || err}` };
   }
   log(`[app] evidence exported (${text.length} chars)`);
   return { saved: true, path: r.filePath };
@@ -354,7 +354,7 @@ async function saveEvidence(e, name, text) {
 function registerIpc() {
   ipcMain.handle('room:pickFolder', async (e, defaultPath) => {
     if (!fromMain(e)) return null;
-    const opts = { title: '选择工作文件夹', buttonLabel: '选择这个文件夹', properties: ['openDirectory', 'createDirectory', 'dontAddToRecent'] };
+    const opts = { title: 'Select Working Folder', buttonLabel: 'Select Folder', properties: ['openDirectory', 'createDirectory', 'dontAddToRecent'] };
     const start = H.existingAncestor(typeof defaultPath === 'string' ? defaultPath : null);
     if (start) opts.defaultPath = start;
     const r = await dialog.showOpenDialog(mainWindow, opts);

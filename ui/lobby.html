@@ -1,83 +1,104 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
-<title>圆桌启动器</title>
+<title>AgentRoundtable</title>
 <link rel="stylesheet" href="lobby.css">
 </head>
 <body>
 <header class="topbar">
   <div class="topbar-main">
-    <span id="hdr-brand" class="brand">圆桌启动器</span>
-    <span id="hdr-root" class="hdr-item">房间目录 <b>未知</b></span>
+    <span class="brand-mark" aria-hidden="true"></span>
+    <span id="hdr-brand" class="brand">AgentRoundtable</span>
+    <span id="hdr-root" class="hdr-pill">Rooms Dir <b>Unknown</b></span>
     <span id="hdr-daemon" class="badge ok hidden"></span>
   </div>
   <div class="topbar-side">
-    <button id="btn-lang" type="button" class="lang-btn" title="Switch UI language to English">EN</button>
-    <span id="hdr-conn" class="conn">连接：未知</span>
-    <span id="hdr-token" class="tok tok-missing">令牌：缺失</span>
+    <button id="btn-theme" type="button" class="theme-btn" title="Toggle light / dark theme">Dark</button>
+    <span id="hdr-conn" class="conn">Connecting</span>
+    <span id="hdr-token" class="tok tok-missing">Not loaded</span>
   </div>
 </header>
 
 <div id="token-bar" class="notice warn hidden">
-  <p>这个页面没有拿到启动器令牌，只能看，不能建房或开房。用圆桌应用时，关掉窗口重新打开圆桌即可；用命令行启动器（room.mjs lobby）时，打开它打印的那条链接（每次启动都会换新的令牌；刷新本页也会丢掉令牌）。</p>
+  <div class="notice-text">No launcher token loaded in page memory. View-only until loaded — reopen the desktop app or open the URL printed by <code>room.mjs lobby</code> (tokens rotate on each launch and are cleared on page reload).</div>
   <form id="token-form" class="inline-form">
-    <input id="token-input" type="password" autocomplete="off" placeholder="或者把链接 # 后面那一段粘贴到这里">
-    <button type="submit">载入到本页（只存内存）</button>
+    <input id="token-input" type="password" autocomplete="off" placeholder="Paste token from URL #fragment">
+    <button type="submit" class="primary btn-small">Load into Memory</button>
   </form>
 </div>
 
-<nav class="tabs" id="tabs" aria-label="视图">
-  <button type="button" data-view="rooms" class="tab active">房间列表</button>
-  <button type="button" data-view="create" class="tab">新建房间</button>
-</nav>
+<div class="subbar">
+  <nav class="tabs" id="tabs" aria-label="Views">
+    <button type="button" data-view="rooms" class="tab active">Rooms</button>
+    <button type="button" data-view="create" class="tab">New Room</button>
+  </nav>
+</div>
 
 <main id="main">
 
 <section id="view-rooms" class="view active" data-view="rooms">
-  <div class="actions">
-    <button type="button" id="btn-refresh">刷新</button>
-    <button type="button" id="btn-goto-create" class="primary">新建房间</button>
-    <span class="hint">每 3 秒自动刷新。「打开房间界面」会在本进程里启动这个房间的服务；关掉启动器窗口时，从这里打开的房间都会停下。</span>
+  <div class="stage-head">
+    <div class="stage-head-left">
+      <h1>Workspaces</h1>
+      <span id="rooms-count" class="count-pill tabular">0</span>
+    </div>
+    <div class="stage-head-actions">
+      <button type="button" id="btn-refresh">Refresh</button>
+      <button type="button" id="btn-goto-create" class="primary">New Room</button>
+    </div>
   </div>
-  <div id="rooms" class="cards"></div>
+  <p class="stage-sub">Live updates via SSE (3 s fallback polling). Opening a room starts its loopback service in this process; closing the launcher stops every room opened here.</p>
+  <div id="rooms" class="room-grid"></div>
 </section>
 
 <section id="view-create" class="view" data-view="create">
-  <form id="form-create" class="card" autocomplete="off">
-    <h4>新建房间</h4>
-    <div class="field-grid">
-      <label for="room-id">房间编号</label>
+  <form id="form-create" class="card builder-card" autocomplete="off">
+    <div class="builder-head">
       <div>
-        <input id="room-id" name="id" type="text" required pattern="[A-Za-z0-9_\-]+" placeholder="例如 demo（字母、数字、- 和 _）">
-        <div class="hint">房间建在 <span id="room-dir-hint" class="mono">房间目录</span> 下。</div>
+        <h2>Create New Room</h2>
+        <p class="hint">Configure your roundtable topology, assign working directories, and generate one-line join prompts for every agent.</p>
       </div>
-      <label for="room-preset">预设</label>
+    </div>
+
+    <div class="field-grid">
+      <label for="room-id">Room ID</label>
+      <div>
+        <input id="room-id" name="id" type="text" required pattern="[A-Za-z0-9_\-]+" placeholder="e.g. pr-review-01 (letters, digits, - and _)">
+        <div class="hint">Created under <span id="room-dir-hint" class="mono">Rooms Dir</span>.</div>
+      </div>
+
+      <label for="room-preset">Preset</label>
       <div>
         <select id="room-preset" name="preset"></select>
         <div id="preset-desc" class="hint"></div>
       </div>
-      <label for="room-lang" id="lbl-room-lang">房间协议语言</label>
+
+      <label for="room-lang" id="lbl-room-lang">Protocol Language</label>
       <div>
         <select id="room-lang" name="lang">
-          <option value="zh-CN">中文（简体）</option>
           <option value="en">English</option>
         </select>
-        <div id="room-lang-hint" class="hint">控制 JOIN.md、每轮包模板与结构化提示词的语言（中文或英文）。</div>
+        <div id="room-lang-hint" class="hint">Controls JOIN.md, turn packet templates, and structured prompt text.</div>
       </div>
     </div>
 
-    <h3>席位</h3>
-    <p class="hint">每个席位是一个已经开着的 coding agent。工作文件夹是那个 agent 能写的地方：执行者一般就是你的项目文件夹；主力兼审方建议给一个专门的空文件夹，这样它对产物只读。用已有的项目文件夹时，取消勾选「替我新建这个空文件夹」（填好路径后页面会自动查一次：文件夹已存在就替你取消勾选）。agent 选「房间内置 Pi」时，这个席位由房间自己托管，不需要另开 agent。</p>
-    <div id="seat-rows" class="seat-rows"></div>
-    <div class="actions">
-      <button type="button" id="btn-add-seat">添加席位</button>
-      <button type="button" id="btn-template">按预设恢复默认席位</button>
+    <div class="section-divider">
+      <h3>Seats</h3>
+      <p class="hint">Each seat corresponds to a coding agent session. Assign executors to your project directory and give leads/reviewers a dedicated empty folder so artifacts remain isolated. Uncheck "Create empty folder" for existing directories (the launcher checks paths automatically). Choose "Built-in Pi" for a room-hosted seat.</p>
     </div>
+
+    <div id="seat-rows" class="seat-rows"></div>
+
     <div class="actions">
-      <button type="submit" id="btn-create" class="primary">建房并生成入席说明</button>
+      <button type="button" id="btn-add-seat">+ Add Seat</button>
+      <button type="button" id="btn-template">Reset to Preset Defaults</button>
+    </div>
+
+    <div class="builder-footer">
+      <button type="submit" id="btn-create" class="primary">Create Room &amp; Generate Join Prompts</button>
       <span id="create-status" class="hint"></span>
     </div>
   </form>

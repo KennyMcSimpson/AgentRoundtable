@@ -1,13 +1,13 @@
 #!/usr/bin/env node
-// dist/build-app.mjs — build the 圆桌 desktop app (圆桌.exe) on a cached Electron runtime.
+// dist/build-app.mjs — build the AgentRoundtable desktop app (AgentRoundtable.exe) on a cached Electron runtime.
 //
 //   node dist/build-app.mjs [--electron-zip <path>] [--rcedit <path>] [--out <dir>] [--zip] [--dry-run]
 //   (npm run app)
 //
-// Output: <out>\圆桌\ (default out = <repo>\dist\out)
+// Output: <out>\AgentRoundtable\ (default out = <repo>\dist\out)
 //
-//   圆桌\
-//     圆桌.exe                    electron.exe renamed; icon and version strings set with rcedit
+//   AgentRoundtable\
+//     AgentRoundtable.exe         electron.exe renamed; icon and version strings set with rcedit
 //     LICENSE, LICENSES.chromium.html, ...   the Electron runtime as shipped (licences stay)
 //     THIRD-PARTY.md              what is bundled and under which licence
 //     BUILD.json                  electronVersion, nodeVersion, roomDevCommit, sha256 of every file
@@ -18,13 +18,13 @@
 //
 // Nothing is downloaded, ever. The Electron zip comes from --electron-zip, else ROOM_ELECTRON_ZIP,
 // else the newest electron-v*-win32-x64.zip under %LOCALAPPDATA%\electron\Cache\*\ (where an earlier
-// npm install of electron left it); without one the script stops with a Chinese instruction. rcedit
+// npm install of electron left it); without one the script stops with an error message. rcedit
 // comes from --rcedit, else ROOM_RCEDIT, else the newest rcedit-x64.exe under
 // %LOCALAPPDATA%\electron-builder\Cache\winCodeSign\*\. Those caches are only read.
 //
 // The new folder is assembled next to the old one and swapped in only when complete; with --zip it
-// is also packed into <out>\圆桌-<version>-win-x64.zip (lib/zip.mjs). --dry-run locates the inputs
-// and prints the file plan without writing anything.
+// is also packed into <out>\AgentRoundtable-<version>-win-x64.zip (lib/zip.mjs). --dry-run locates
+// the inputs and prints the file plan without writing anything.
 //
 // Build tooling run by the maintainer, not part of the room service: it writes its output directory
 // directly, not through lib/guard.mjs.
@@ -35,8 +35,8 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readZip, ZipWriter } from '../lib/zip.mjs';
 
-export const APP_FOLDER = '圆桌';
-export const EXE_NAME = '圆桌.exe';
+export const APP_FOLDER = 'AgentRoundtable';
+export const EXE_NAME = 'AgentRoundtable.exe';
 // Electron's demo app: left out so the exe can only run resources\app.
 export const DEFAULT_APP_ASAR = 'resources/default_app.asar';
 const DIST_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -47,16 +47,16 @@ export class BuildRefusal extends Error {
 }
 
 export const NO_ZIP_MESSAGE = [
-  '没有找到 Electron 运行时 zip（electron-v<版本>-win32-x64.zip）。本脚本不下载任何东西。',
-  '请用以下任一方式指定一个已经在本机上的 zip：',
-  '  node dist/build-app.mjs --electron-zip <zip 的完整路径>',
-  '  或设置环境变量 ROOM_ELECTRON_ZIP=<zip 的完整路径>',
-  '  或把它放在 %LOCALAPPDATA%\\electron\\Cache\\<任意文件夹>\\ 下（npm 安装 electron 时留下的缓存就在那里）。',
+  'No Electron runtime zip found (electron-v<version>-win32-x64.zip). This script never downloads anything.',
+  'Provide a local zip using any of the following:',
+  '  node dist/build-app.mjs --electron-zip <full path to zip>',
+  '  or set environment variable ROOM_ELECTRON_ZIP=<full path to zip>',
+  '  or place it under %LOCALAPPDATA%\\electron\\Cache\\<any folder>\\ (where npm install electron caches it).',
 ].join('\n');
 export const NO_RCEDIT_MESSAGE = [
-  '没有找到 rcedit-x64.exe（用来给 圆桌.exe 设置图标和版本信息）。本脚本不下载任何东西。',
-  '请用 --rcedit <rcedit-x64.exe 的完整路径> 或环境变量 ROOM_RCEDIT 指定，',
-  '或把它放在 %LOCALAPPDATA%\\electron-builder\\Cache\\winCodeSign\\<任意文件夹>\\ 下（electron-builder 的缓存）。',
+  `No rcedit-x64.exe found (used to set the icon and version strings on ${EXE_NAME}). This script never downloads anything.`,
+  'Provide it with --rcedit <full path to rcedit-x64.exe> or environment variable ROOM_RCEDIT,',
+  'or place it under %LOCALAPPDATA%\\electron-builder\\Cache\\winCodeSign\\<any folder>\\ (the electron-builder cache).',
 ].join('\n');
 
 // ---------------------------------------------------------------------------------------------
@@ -66,14 +66,14 @@ export function parseBuildAppArgs(argv) {
   const o = { electronZip: null, rcedit: null, out: null, zip: false, dryRun: false, help: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    const val = () => { const v = argv[++i]; if (!v || v.startsWith('--')) throw new Error(`${a} 后面要跟一个路径`); return v; };
+    const val = () => { const v = argv[++i]; if (!v || v.startsWith('--')) throw new Error(`${a} requires a path argument`); return v; };
     if (a === '--electron-zip') o.electronZip = val();
     else if (a === '--rcedit') o.rcedit = val();
     else if (a === '--out') o.out = val();
     else if (a === '--zip') o.zip = true;
     else if (a === '--dry-run') o.dryRun = true;
     else if (a === '--help' || a === '-h') o.help = true;
-    else throw new Error(`未知参数 ${a}`);
+    else throw new Error(`Unknown option: ${a}`);
   }
   return o;
 }
@@ -106,7 +106,7 @@ function fileStat(p) { try { const s = fs.statSync(p); return s.isFile() ? s : n
 export function locateElectronZip({ option = null, env = process.env } = {}) {
   for (const [p, source] of [[option, 'option'], [env.ROOM_ELECTRON_ZIP, 'env']]) {
     if (!p) continue;
-    if (!fileStat(p)) throw new BuildRefusal('ELECTRON_ZIP_MISSING', `指定的 Electron zip 不存在：${p}`);
+    if (!fileStat(p)) throw new BuildRefusal('ELECTRON_ZIP_MISSING', `Specified Electron zip does not exist: ${p}`);
     return { path: path.resolve(p), version: electronVersionFromName(p), source };
   }
   const local = env.LOCALAPPDATA;
@@ -129,7 +129,7 @@ export function locateElectronZip({ option = null, env = process.env } = {}) {
 export function locateRcedit({ option = null, env = process.env } = {}) {
   for (const [p, source] of [[option, 'option'], [env.ROOM_RCEDIT, 'env']]) {
     if (!p) continue;
-    if (!fileStat(p)) throw new BuildRefusal('RCEDIT_MISSING', `指定的 rcedit 不存在：${p}`);
+    if (!fileStat(p)) throw new BuildRefusal('RCEDIT_MISSING', `Specified rcedit does not exist: ${p}`);
     return { path: path.resolve(p), source };
   }
   const local = env.LOCALAPPDATA;
@@ -167,7 +167,7 @@ export function runtimeExcluded(rel) {
   return rel === 'ui/fixtures' || rel.startsWith('ui/fixtures/') || rel === 'ui/mock-server.mjs' || rel === 'node_modules' || rel.includes('/node_modules');
 }
 
-// [{dest, abs, rel}] where dest is relative to the app folder (圆桌\).
+// [{dest, abs, rel}] where dest is relative to the app folder (AgentRoundtable\).
 export function planAppFiles(root = REPO_ROOT) {
   const plan = [];
   const missing = [];
@@ -199,37 +199,37 @@ export function rceditArgs({ exe, icon, version }) {
     '--set-icon', icon,
     '--set-file-version', num,
     '--set-product-version', num,
-    '--set-version-string', 'FileDescription', '圆桌',
-    '--set-version-string', 'ProductName', '圆桌',
+    '--set-version-string', 'FileDescription', 'AgentRoundtable',
+    '--set-version-string', 'ProductName', 'AgentRoundtable',
     '--set-version-string', 'CompanyName', 'KennyMcSimpson',
     '--set-version-string', 'OriginalFilename', EXE_NAME,
-    '--set-version-string', 'InternalName', '圆桌',
+    '--set-version-string', 'InternalName', 'AgentRoundtable',
   ];
 }
 
 export function thirdPartyNotes({ electronVersion, nodeVersion }) {
   return [
-    '# 第三方组件（圆桌 桌面应用）',
+    '# Third-Party Components (AgentRoundtable Desktop App)',
     '',
-    '本文件夹里除 `resources/app/` 以外的文件都来自 Electron 官方发布的 Windows x64 运行时 zip，原样保留（`electron.exe` 改名为 `圆桌.exe` 并改了图标和版本信息，删除了 `resources/default_app.asar`）。',
+    `Every file in this folder outside \`resources/app/\` comes unmodified from the official Electron Windows x64 runtime zip (\`electron.exe\` is renamed to \`${EXE_NAME}\` with updated icon and version strings, and \`resources/default_app.asar\` is omitted).`,
     '',
-    '| 组件 | 版本 | 许可 | 许可文本 |',
+    '| Component | Version | License | License Text |',
     '|---|---|---|---|',
-    `| Electron | ${electronVersion || '未知'} | MIT | \`LICENSE\` |`,
-    '| Chromium 及其依赖 | 随 Electron | 多种（BSD、LGPL、MPL 等） | `LICENSES.chromium.html` |',
-    `| Node.js（Electron 内置） | ${nodeVersion || '随 Electron'} | MIT 及其依赖的许可 | \`LICENSES.chromium.html\`（Electron 的汇总） |`,
+    `| Electron | ${electronVersion || 'unknown'} | MIT | \`LICENSE\` |`,
+    '| Chromium and its dependencies | bundled with Electron | Various (BSD, LGPL, MPL, etc.) | `LICENSES.chromium.html` |',
+    `| Node.js (embedded in Electron) | ${nodeVersion || 'bundled with Electron'} | MIT and dependency licenses | \`LICENSES.chromium.html\` (Electron bundle) |`,
     '',
-    '`resources/app/` 是圆桌自己的代码（`app/` 与 `room-dev/`），MIT 许可（`resources/app/room-dev/LICENSE`），零运行时依赖：只用 Node 内置模块，不附带任何别的第三方代码。',
+    '`resources/app/` contains AgentRoundtable source code (`app/` and `room-dev/`), MIT licensed (`resources/app/room-dev/LICENSE`), with zero runtime dependencies (Node built-in modules only).',
     '',
   ].join('\n');
 }
 
-// fs.rmSync is not used: on Node 24.11 / Windows it silently leaves paths with non-ASCII
-// characters (such as this app's 圆桌 folder) in place, without throwing. fs.promises.rm removes
-// them; the result is checked so a leftover is reported instead of ignored.
+// Sync removal is avoided: on Node 24.11 / Windows it can silently leave paths with non-ASCII
+// characters in place without throwing. fs.promises.rm removes them; the result is checked so a
+// leftover is reported instead of ignored.
 export async function removeTree(p) {
   await fs.promises.rm(p, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
-  if (fs.existsSync(p)) throw new Error(`没能删除 ${p}`);
+  if (fs.existsSync(p)) throw new Error(`Could not remove ${p}`);
 }
 
 function sha256(buf) { return crypto.createHash('sha256').update(buf).digest('hex'); }
@@ -270,23 +270,23 @@ export async function buildApp(opts = {}) {
   if (!zip) throw new BuildRefusal('NO_ELECTRON_ZIP', NO_ZIP_MESSAGE);
   const rcedit = locateRcedit({ option: opts.rcedit, env });
   const { plan, missing } = planAppFiles(root);
-  if (missing.length) throw new BuildRefusal('SOURCES_MISSING', `源码缺少：${missing.join(', ')}`);
-  if (!plan.some((p) => p.dest === 'resources/app/main.mjs') || !plan.some((p) => p.dest === 'resources/app/icon.ico')) throw new BuildRefusal('APP_MISSING', 'app/ 里缺少 main.mjs 或 icon.ico（图标用 node dist/make-icon.mjs 生成）。');
+  if (missing.length) throw new BuildRefusal('SOURCES_MISSING', `Missing source files: ${missing.join(', ')}`);
+  if (!plan.some((p) => p.dest === 'resources/app/main.mjs') || !plan.some((p) => p.dest === 'resources/app/icon.ico')) throw new BuildRefusal('APP_MISSING', 'app/ is missing main.mjs or icon.ico (generate the icon with node dist/make-icon.mjs).');
 
   if (opts.dryRun) {
     log(`DRY-RUN electronZip=${zip.path.replace(/\\/g, '/')} version=${zip.version || '?'} source=${zip.source}`);
-    log(`DRY-RUN rcedit=${rcedit ? rcedit.path.replace(/\\/g, '/') : '(没找到)'} out=${finalDir.replace(/\\/g, '/')} files=${plan.length}`);
+    log(`DRY-RUN rcedit=${rcedit ? rcedit.path.replace(/\\/g, '/') : '(not found)'} out=${finalDir.replace(/\\/g, '/')} files=${plan.length}`);
     return { dryRun: true, electronZip: zip, rcedit, out: finalDir, plan: plan.map(({ dest, rel }) => ({ dest, rel })), version };
   }
   if (!rcedit) throw new BuildRefusal('NO_RCEDIT', NO_RCEDIT_MESSAGE);
-  if (process.platform !== 'win32') throw new BuildRefusal('NOT_WINDOWS', '圆桌.exe 只能在 Windows 上构建（rcedit 是 Windows 程序）。');
+  if (process.platform !== 'win32') throw new BuildRefusal('NOT_WINDOWS', `${EXE_NAME} can only be built on Windows (rcedit is a Windows binary).`);
 
   fs.mkdirSync(outDir, { recursive: true });
   const stamp = crypto.randomBytes(4).toString('hex');
   const stage = path.join(outDir, `.${APP_FOLDER}.building-${stamp}`);
   try {
     // 1. Electron runtime
-    log(`读取 ${zip.path}`);
+    log(`Reading ${zip.path}`);
     const zipBuf = fs.readFileSync(zip.path);
     const zipSha = sha256(zipBuf);
     const entries = readZip(zipBuf);
@@ -294,9 +294,9 @@ export async function buildApp(opts = {}) {
     let n = 0;
     for (const e of entries) {
       if (e.isDir) continue;
-      if (!e.crc32Ok) throw new Error(`Electron zip 里 ${e.name} 的 CRC 不对`);
+      if (!e.crc32Ok) throw new Error(`CRC mismatch for ${e.name} in Electron zip`);
       const rel = e.name.replace(/\\/g, '/');
-      if (rel.split('/').some((s) => s === '..' || s === '') || path.isAbsolute(rel)) throw new Error(`Electron zip 里有不安全的路径：${e.name}`);
+      if (rel.split('/').some((s) => s === '..' || s === '') || path.isAbsolute(rel)) throw new Error(`Unsafe path in Electron zip: ${e.name}`);
       // Never written at all: deleting it right after writing was observed to leave it in place
       // (a freshly written file can still be held open by a scanner on Windows).
       if (rel.toLowerCase() === DEFAULT_APP_ASAR) continue;
@@ -306,12 +306,12 @@ export async function buildApp(opts = {}) {
       if (rel === 'version') electronVersion = e.data.toString('utf8').trim().replace(/^v/, '') || electronVersion;
       n++;
     }
-    log(`Electron 运行时 ${electronVersion}：${n} 个文件`);
+    log(`Electron runtime ${electronVersion}: ${n} files`);
     const electronExe = path.join(stage, 'electron.exe');
-    if (!fs.existsSync(electronExe)) throw new Error('Electron zip 里没有 electron.exe（不是 win32-x64 运行时？）');
+    if (!fs.existsSync(electronExe)) throw new Error('electron.exe not found in Electron zip (not a win32-x64 runtime?)');
     const exe = path.join(stage, EXE_NAME);
     fs.renameSync(electronExe, exe);
-    if (fs.existsSync(path.join(stage, ...DEFAULT_APP_ASAR.split('/')))) throw new Error('resources\\default_app.asar 不应出现在构建里');
+    if (fs.existsSync(path.join(stage, ...DEFAULT_APP_ASAR.split('/')))) throw new Error('resources\\default_app.asar must not appear in the build');
 
     // 2. app + room-dev runtime
     for (const f of plan) {
@@ -325,13 +325,13 @@ export async function buildApp(opts = {}) {
         fs.copyFileSync(f.abs, dest);
       }
     }
-    log(`圆桌程序文件：${plan.length} 个`);
+    log(`AgentRoundtable app files: ${plan.length}`);
 
     // 3. icon and version strings
     const args = rceditArgs({ exe, icon: path.join(stage, 'resources', 'app', 'icon.ico'), version });
     const rc = spawnSync(rcedit.path, args, { encoding: 'utf8', windowsHide: true, timeout: 120_000 });
-    if (rc.error || rc.status !== 0) throw new Error(`rcedit 失败（${rc.error ? rc.error.message : `退出码 ${rc.status}`}）：${String(rc.stderr || rc.stdout || '').trim().slice(0, 400)}`);
-    log(`rcedit：图标与版本信息已写入 ${EXE_NAME}（${numericVersion(version)}）`);
+    if (rc.error || rc.status !== 0) throw new Error(`rcedit failed (${rc.error ? rc.error.message : `exit code ${rc.status}`}): ${String(rc.stderr || rc.stdout || '').trim().slice(0, 400)}`);
+    log(`rcedit: wrote icon and version info to ${EXE_NAME} (${numericVersion(version)})`);
 
     // 4. Node version of the bundled runtime (the exe in Node mode prints it; writes nothing)
     let nodeVersion = null;
@@ -361,12 +361,12 @@ export async function buildApp(opts = {}) {
     if (fs.existsSync(finalDir)) {
       old = path.join(outDir, `.${APP_FOLDER}.old-${stamp}`);
       try { fs.renameSync(finalDir, old); } catch (e) {
-        throw new Error(`旧的 ${finalDir} 换不掉（${e.code || e.message}）：圆桌是不是还开着？关掉它再构建。`);
+        throw new Error(`Could not replace existing ${finalDir} (${e.code || e.message}): is AgentRoundtable still running? Close it and rebuild.`);
       }
     }
     try { fs.renameSync(stage, finalDir); } catch (e) {
       if (old) { try { fs.renameSync(old, finalDir); } catch { /* reported below */ } }
-      throw new Error(`新的 ${finalDir} 没能放到位（${e.code || e.message}）；旧的${old ? '已恢复' : '不存在'}。`);
+      throw new Error(`Could not move new ${finalDir} into place (${e.code || e.message}); previous build ${old ? 'restored' : 'did not exist'}.`);
     }
     if (old) await removeTree(old);
     log(`BUILT app=${path.join(finalDir, EXE_NAME).replace(/\\/g, '/')} files=${files.length + 1} electron=${electronVersion} node=${nodeVersion || '?'}`);
@@ -397,7 +397,7 @@ if (isMain()) {
   let opts;
   try { opts = parseBuildAppArgs(process.argv.slice(2)); } catch (e) { process.stderr.write(`ERROR ${e.message}\n`); process.exit(9); }
   if (opts.help) {
-    process.stdout.write('用法：node dist/build-app.mjs [--electron-zip <zip>] [--rcedit <rcedit-x64.exe>] [--out <目录>] [--zip] [--dry-run]\n');
+    process.stdout.write('Usage: node dist/build-app.mjs [--electron-zip <zip>] [--rcedit <rcedit-x64.exe>] [--out <dir>] [--zip] [--dry-run]\n');
     process.exit(0);
   }
   buildApp(opts).then(() => { process.exitCode = 0; }, (e) => {

@@ -383,13 +383,23 @@
         renderInlineNodes(doc, hEl, parseInline(b.text));
         container.appendChild(hEl);
       } else if (b.type === 'code') {
+        var codeWrap = doc.createElement('div');
+        codeWrap.className = 'rt-code-block';
+        var codeHead = doc.createElement('div');
+        codeHead.className = 'rt-code-head';
+        var langTag = doc.createElement('span');
+        langTag.className = 'rt-code-lang';
+        langTag.textContent = b.lang ? b.lang : 'text';
+        codeHead.appendChild(langTag);
+        codeWrap.appendChild(codeHead);
         var pre = doc.createElement('pre');
         pre.className = 'rt-md-pre';
         var code = doc.createElement('code');
         if (b.lang) code.setAttribute('data-lang', b.lang);
         code.textContent = b.text;
         pre.appendChild(code);
-        container.appendChild(pre);
+        codeWrap.appendChild(pre);
+        container.appendChild(codeWrap);
       } else if (b.type === 'blockquote') {
         var bq = doc.createElement('blockquote');
         bq.className = 'rt-md-quote';

@@ -3,22 +3,22 @@
 //
 // Kept here: where the app keeps its data (appRoot()/app-data, never AppData), how the lobby's URL
 // line is parsed without the token ever reaching a log, which navigations and window.open calls are
-// allowed, which keys count as a reload, the Chinese context menu, and the --smoke result shape.
+// allowed, which keys count as a reload, the context menu, and the --smoke result shape.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 
-export const APP_TITLE = '圆桌';
-export const ROOM_WINDOW_TITLE = '圆桌 · 房间';
+export const APP_TITLE = 'AgentRoundtable';
+export const ROOM_WINDOW_TITLE = 'AgentRoundtable · Room';
 export const WINDOW_SIZE = Object.freeze({ width: 1180, height: 800, minWidth: 820, minHeight: 560 });
 // ui/lobby.css --bg (light / prefers-color-scheme: dark), so the window does not flash white.
-export const BACKGROUND = Object.freeze({ light: '#f6f7f9', dark: '#15181c' });
+export const BACKGROUND = Object.freeze({ light: '#f7f8fa', dark: '#0d0f13' });
 export const QUIT_GRACE_MS = 4000;
 export const LOBBY_START_TIMEOUT_MS = 30_000;
 export const ROOM_PORT_WAIT_MS = 3000;
 export const MAX_COPY_CHARS = 1_000_000;
-// The room UI's 导出证据 JSON (state + events the page has pulled): generous, but bounded.
+// The room UI's Export Evidence JSON (state + events the page has pulled): generous, but bounded.
 export const MAX_EVIDENCE_CHARS = 256 * 1024 * 1024;
 
 // A room window's title names its room, so two rooms differ in the taskbar and Alt+Tab.
@@ -27,7 +27,7 @@ export function roomWindowTitle(id) {
   return s ? `${ROOM_WINDOW_TITLE} · ${s.slice(0, 80)}` : ROOM_WINDOW_TITLE;
 }
 
-// Where the save dialog for 导出证据 starts: appRoot()/exports/<file name the page proposed>, the
+// Where the save dialog for Export Evidence starts: appRoot()/exports/<file name the page proposed>, the
 // name reduced to letters, digits, . _ - and ending in .json. The app writes the file only where the
 // user confirms in the dialog.
 export function evidenceDefaultPath(appRoot, name, nowMs = Date.now()) {
@@ -40,7 +40,7 @@ export function evidenceDefaultPath(appRoot, name, nowMs = Date.now()) {
 
 // ---- where the app writes (INTERFACES §1: never AppData)
 
-// A ROOM_DEV_HOME the app cannot use, as a Chinese message, else null. It must be a fully qualified
+// A ROOM_DEV_HOME the app cannot use, as an error message, else null. It must be a fully qualified
 // path: a relative one would put the app's data under whatever the current directory is (outside
 // both appRoot() and the install folder), and Electron's setPath rejects it at startup. On Windows a
 // rooted path without a drive (\x) or a drive-relative one (C:x) is refused for the same reason.
@@ -50,7 +50,7 @@ export function roomDevHomeProblem(env = process.env, { platform = process.platf
   const s = String(v);
   const P = platform === 'win32' ? path.win32 : path.posix;
   const qualified = P.isAbsolute(s) && (platform !== 'win32' || /^(?:[A-Za-z]:[\\/]|\\\\[^\\/])/.test(s));
-  if (!qualified) return `环境变量 ROOM_DEV_HOME 必须是绝对路径（例如 D:\\room-dev），现在是「${s}」。请改成绝对路径，或删掉这个变量，然后重新打开圆桌。`;
+  if (!qualified) return `Environment variable ROOM_DEV_HOME must be an absolute path (for example, D:\\room-dev), got "${s}". Set it to an absolute path or unset it, then reopen AgentRoundtable.`;
   return null;
 }
 
@@ -127,16 +127,17 @@ export function lobbyForkSpec({ roomDevDir, execPath, env = process.env }) {
   };
 }
 
-// The one line room.mjs lobby prints: 圆桌启动器：http://127.0.0.1:<port>/#<token>.
+// The one line room.mjs lobby prints: AgentRoundtable Launcher: http://127.0.0.1:<port>/#<token>.
 // Returns {base, port} with the token as a non-enumerable property: JSON.stringify, util.inspect and
 // template logging of the result never show it. Use lobbyLoadUrl(info) to get the URL to load.
-const LOBBY_LINE = /^圆桌启动器：(http:\/\/127\.0\.0\.1:(\d{1,5})\/)#([A-Za-z0-9]{16,128})\s*$/;
+const LOBBY_LINE = /^AgentRoundtable Launcher: (http:\/\/127\.0\.0\.1:(\d{1,5})\/?)#(?:token=)?([A-Za-z0-9]{16,128})\s*$/;
 export function parseLobbyLine(line) {
   const m = LOBBY_LINE.exec(String(line || '').replace(/^\uFEFF/, ''));
   if (!m) return null;
   const port = Number(m[2]);
   if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
-  const info = { base: m[1], port };
+  const base = m[1].endsWith('/') ? m[1] : `${m[1]}/`;
+  const info = { base, port };
   Object.defineProperty(info, 'token', { value: m[3], enumerable: false });
   return info;
 }
@@ -144,12 +145,12 @@ export function lobbyLoadUrl(info) { return `${info.base}#${info.token}`; }
 
 // Any loopback URL fragment (the lobby token, a room's admin token) is replaced before logging.
 export function redactSecrets(text) {
-  return String(text).replace(/(https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?[^\s#]*)#[^\s]*/g, '$1#<已隐藏>');
+  return String(text).replace(/(https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?[^\s#]*)#[^\s]*/g, '$1#<redacted>');
 }
 
 // Origin only (no path, no fragment) for log lines about a URL.
 export function describeUrl(url) {
-  try { const u = new URL(url); return u.origin === 'null' ? u.protocol : u.origin; } catch { return '<无效地址>'; }
+  try { const u = new URL(url); return u.origin === 'null' ? u.protocol : u.origin; } catch { return '<invalid-url>'; }
 }
 
 // Splits a byte stream into lines (UTF-8 safe across chunk boundaries).
@@ -224,16 +225,16 @@ export function isReloadAccelerator(input) {
   return false;
 }
 
-// The native context menu: 复制 / 粘贴 / 剪切 / 全选 only, each enabled as Chromium's edit flags say.
+// The native context menu: Copy / Paste / Cut / Select All only, each enabled as Chromium's edit flags say.
 export function contextMenuTemplate(params = {}) {
   const f = (params && params.editFlags) || {};
   const editable = !!(params && params.isEditable);
   const selected = !!(params && params.selectionText);
   return [
-    { label: '复制', role: 'copy', enabled: !!f.canCopy && selected },
-    { label: '粘贴', role: 'paste', enabled: !!f.canPaste && editable },
-    { label: '剪切', role: 'cut', enabled: !!f.canCut && editable && selected },
-    { label: '全选', role: 'selectAll', enabled: !!f.canSelectAll },
+    { label: 'Copy', role: 'copy', enabled: !!f.canCopy && selected },
+    { label: 'Paste', role: 'paste', enabled: !!f.canPaste && editable },
+    { label: 'Cut', role: 'cut', enabled: !!f.canCut && editable && selected },
+    { label: 'Select All', role: 'selectAll', enabled: !!f.canSelectAll },
   ];
 }
 
@@ -256,15 +257,15 @@ export const SMOKE_PAGE_SCRIPT = `(() => {
   const tok = document.getElementById('hdr-token');
   return {
     title: document.title,
-    hasCreate: !![...document.querySelectorAll('button')].find((b) => /新建房间/.test(b.textContent)),
+    hasCreate: !![...document.querySelectorAll('button')].find((b) => /New Room/.test(b.textContent)),
     isApp: !!window.roomApp && window.roomApp.isApp === true,
-    hasToken: !!tok && /已载入/.test(tok.textContent),
+    hasToken: !!tok && /Loaded/.test(tok.textContent),
     fragmentCleared: !location.hash,
   };
 })()`;
 
 // --smoke-room: creates a throwaway room through the lobby API (the page's own origin, token in the
-// POST body), opens it, and window.opens its room UI the same way the 打开房间界面 button does.
+// POST body), opens it, and window.opens its room UI the same way the Open Room UI button does.
 // Returns {ok, port} or {ok: false, step, error}; never the room URL (it carries the admin token).
 export function smokeRoomScript({ token, id, cwd }) {
   return `(async () => {

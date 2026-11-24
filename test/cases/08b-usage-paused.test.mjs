@@ -1,16 +1,16 @@
-// Plan §13.1 #8b (仿真): known token usage reaches budget.maxTokens.
+// Plan §13.1 #8b (simulation): known token usage reaches budget.maxTokens.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createSim } from '../../sim/driver.mjs';
 import { createScriptedSeat } from '../../sim/scripted-seat.mjs';
 
-test('#8b 累计用量超上限：当前回合终态后 paused，不再发新包', async () => {
+test('#8b Cumulative token usage exceeds cap: room pauses after current turn ends and issues no new packets', async () => {
   const sim = await createSim({ preset: 'discussion', init: { 'max-tokens': 1000 }, seats: [{ seatId: 'A', role: 'lead' }, { seatId: 'B', role: 'participant' }, { seatId: 'C', role: 'participant' }] });
   await sim.check(async () => {
-    await sim.admin({ cmd: 'task', text: '用量上限' });
+    await sim.admin({ cmd: 'task', text: 'Usage cap' });
     await sim.admin({ cmd: 'start', order: ['A', 'B', 'C'] });
-    const A = createScriptedSeat({ seatId: 'A', script: [{ wait: {} }, { submit: 'A 开题（用量 600）', usage: { input: 500, output: 100 } }] });
-    const B = createScriptedSeat({ seatId: 'B', script: [{ wait: {} }, { submit: 'B 发言（用量 500，累计超限）', usage: { input: 400, output: 100 } }] });
+    const A = createScriptedSeat({ seatId: 'A', script: [{ wait: {} }, { submit: 'A opening (usage 600)', usage: { input: 500, output: 100 } }] });
+    const B = createScriptedSeat({ seatId: 'B', script: [{ wait: {} }, { submit: 'B speech (usage 500, exceeds cap)', usage: { input: 400, output: 100 } }] });
     await sim.run([A]);
     assert.equal(sim.state().paused, false, 'still under the cap after A');
     assert.equal(sim.state().usage.totals.tokens, 600);

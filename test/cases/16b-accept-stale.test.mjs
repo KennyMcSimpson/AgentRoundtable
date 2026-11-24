@@ -1,4 +1,4 @@
-// Plan §13.1 #16b (仿真): the user accepts the stale manifest (admin accept-stale).
+// Plan §13.1 #16b (simulation): the user accepts the stale manifest (admin accept-stale).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { scenario, invariants } from './16a-stale-during-review.test.mjs';
@@ -18,18 +18,18 @@ async function acceptThenChange({ addFile, audit }) {
     preset: 'implement-review', audit,
     seats: [{ seatId: 'A', role: 'lead' }, { seatId: 'B', role: 'executor', files: { 'src/app.mjs': 'export const x = 1;\n' } }, { seatId: 'C', role: 'participant' }],
   });
-  await sim.admin({ cmd: 'task', text: '实现 app.mjs' });
+  await sim.admin({ cmd: 'task', text: 'Implement app.mjs' });
   await sim.admin({ cmd: 'start' });
   const out = { early: null, accept: null };
   const sha = () => sim.latestManifest('B');
-  const B = createScriptedSeat({ seatId: 'B', script: [{ wait: {} }, { artifacts: { paths: ['src'] } }, { submit: 'B：完成' }, { wait: {} }, { submit: 'B：汇报' }] });
+  const B = createScriptedSeat({ seatId: 'B', script: [{ wait: {} }, { artifacts: { paths: ['src'] } }, { submit: 'B: done' }, { wait: {} }, { submit: 'B: report' }] });
   const C = createScriptedSeat({
     seatId: 'C',
     script: [
       { wait: {} },
       { do: async (seat, s) => { out.early = await s.admin({ cmd: 'accept-stale', manifestSha: sha() }); } },
-      { editFile: { seat: 'B', path: 'src/app.mjs', text: 'export const x = 2; // 冻结后被改\n' } },
-      () => ({ submit: `C：我看过了 <<ROOM:VERDICT pass artifact=${sha()}>>` }),
+      { editFile: { seat: 'B', path: 'src/app.mjs', text: 'export const x = 2; // modified after freeze\n' } },
+      () => ({ submit: `C: reviewed it <<ROOM:VERDICT pass artifact=${sha()}>>` }),
       { do: async (seat, s) => { out.accept = await s.admin({ cmd: 'accept-stale', manifestSha: sha() }); } },
       ...(addFile ? [{ editFile: { seat: 'B', path: 'src/evil.mjs', text: 'export const evil = true;\n' } }] : []),
     ],
@@ -37,19 +37,19 @@ async function acceptThenChange({ addFile, audit }) {
   const A = createScriptedSeat({
     seatId: 'A',
     script: [
-      { wait: {} }, { submit: 'A：开题' },
+      { wait: {} }, { submit: 'A: opening' },
       { wait: {} },
       // C accepts and (optionally) adds the file in one advance, so both precede A's verdict
       { until: (s) => s.ofType('stale_accepted').length > 0 },
-      () => ({ verdict: 'pass', artifact: sha(), text: '通过' }),
-      { submit: 'A：汇总' },
+      () => ({ verdict: 'pass', artifact: sha(), text: 'Pass' }),
+      { submit: 'A: summary' },
     ],
   });
   await sim.run([B, C, A]);
   return { sim, sha: sha(), out };
 }
 
-test('#16b 用户接受 stale：记 accepted_stale，该 verdict 计入', async () => {
+test('#16b User accepts stale manifest: recorded as accepted_stale and verdict counts', async () => {
   const r = await scenario();
   const { sim, sha } = r;
   await sim.check(async () => {
@@ -71,7 +71,7 @@ test('#16b 用户接受 stale：记 accepted_stale，该 verdict 计入', async 
   });
 });
 
-test('#16b accept-stale 只接受用户看到的那份变化：复算之前接受被拒（NOT_STALE）；接受之后又多出的文件让 verdict 仍是 stale、不进汇总', async () => {
+test('#16b accept-stale covers only the changes the user saw: accepting before recompute is refused (NOT_STALE); an extra file added later leaves the verdict stale and excluded from summary', async () => {
   const { sim, sha, out } = await acceptThenChange({ addFile: true });
   await sim.check(async () => {
     assert.deepEqual([out.early.ok, out.early.error], [false, 'NOT_STALE'], 'nothing was recomputed yet: nothing to accept');
@@ -90,7 +90,7 @@ test('#16b accept-stale 只接受用户看到的那份变化：复算之前接�
   });
 });
 
-test('#16b 接受 stale 不抹掉 taint：同时 stale 与 tainted 的 verdict 接受后仍标 tainted，汇总条目带着 taint', async () => {
+test('#16b Accepting stale does not erase taint: a verdict that is both stale and tainted stays tainted after acceptance and carries taint into summary', async () => {
   const { sim, out } = await acceptThenChange({ addFile: false, audit: tainting });
   await sim.check(async () => {
     assert.equal(out.accept.ok, true);
@@ -102,7 +102,7 @@ test('#16b 接受 stale 不抹掉 taint：同时 stale 与 tainted 的 verdict �
     assert.ok(inc, 'the accepted verdict enters the summary');
     assert.equal(inc.tainted, true, 'the summary entry still shows the taint');
     assert.deepEqual(inc.annotations, ['accepted_stale', 'tainted']);
-    assert.equal(inc.verified, false, 'a tainted pass is never 已验证');
+    assert.equal(inc.verified, false, 'a tainted pass is never verified');
     assert.equal(sp.verified[0].reason, 'TAINTED');
   });
 });

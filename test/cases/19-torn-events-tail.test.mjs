@@ -1,4 +1,4 @@
-// Plan §13.1 #19 (仿真): the service dies mid-append and leaves a torn last line in events.jsonl.
+// Plan §13.1 #19 (simulation): the service dies mid-append and leaves a torn last line in events.jsonl.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -7,12 +7,12 @@ import { createSim, attemptOutcomes } from '../../sim/driver.mjs';
 import { createScriptedSeat } from '../../sim/scripted-seat.mjs';
 import { rebuild } from '../../lib/reducer.mjs';
 
-test('#19 撕裂的 events.jsonl 尾行：恢复到最后一条完整事件，之后的事件从新行续写', async () => {
+test('#19 Torn events.jsonl tail line: recovers to last complete event and appends subsequent events on a fresh line', async () => {
   const sim = await createSim({ preset: 'discussion', seats: [{ seatId: 'A', role: 'lead' }, { seatId: 'B', role: 'participant' }] });
   await sim.check(async () => {
-    await sim.admin({ cmd: 'task', text: '撕裂尾行' });
+    await sim.admin({ cmd: 'task', text: 'Torn tail line' });
     await sim.admin({ cmd: 'start', order: ['A', 'B'] });
-    await sim.run([createScriptedSeat({ seatId: 'A', script: [{ wait: {} }, { submit: 'A 开题' }] })]);
+    await sim.run([createScriptedSeat({ seatId: 'A', script: [{ wait: {} }, { submit: 'A opening' }] })]);
     const before = sim.events();
     const lastComplete = before[before.length - 1].seq;
     await sim.crashService();
@@ -30,8 +30,8 @@ test('#19 撕裂的 events.jsonl 尾行：恢复到最后一条完整事件，�
     assert.equal(sim.lastEvent('needs_reconcile').seq, lastComplete + 1, 'the next event takes the next seq on a fresh line');
     await sim.admin({ cmd: 'reconcile', attemptId: b1, action: 'replay' });
     await sim.run([
-      createScriptedSeat({ seatId: 'B', script: [{ submit: 'B 发言', attempt: b1 }] }),
-      createScriptedSeat({ seatId: 'A', script: [{ wait: {} }, { submit: 'A 汇总' }] }),
+      createScriptedSeat({ seatId: 'B', script: [{ submit: 'B speech', attempt: b1 }] }),
+      createScriptedSeat({ seatId: 'A', script: [{ wait: {} }, { submit: 'A summary' }] }),
     ]);
     const lines = fs.readFileSync(path.join(sim.roomDir, 'events.jsonl'), 'utf8').split('\n').filter(Boolean);
     const parsed = lines.map((l) => { try { return JSON.parse(l); } catch { return null; } });

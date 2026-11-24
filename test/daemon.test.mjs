@@ -178,7 +178,7 @@ test('daemon mode: lang=en room, start with task protection, registry outside ro
     assert.deepEqual(initEv.json.rooms, []);
     assert.ok(!initEv.data.includes(d1.token));
 
-    // Create two rooms: live1 (en, will be started) and idle1 (zh-CN, stays idle)
+    // Create two rooms: live1 (en, will be started) and idle1 (default lang, stays idle)
     const c1 = await req(d1.port, { method: 'POST', pathname: '/lobby/api/create', body: {
       token: d1.token, id: 'live1', preset: 'discussion', lang: 'en',
       seats: [
@@ -269,7 +269,7 @@ test('room.mjs daemon + daemon status CLI', async () => {
   let out = '';
   child.stdout.on('data', (c) => { out += c; });
   try {
-    const ready = await until(async () => (/常驻守护模式：/.test(out) ? /^圆桌启动器：(http:\/\/127\.0\.0\.1:(\d+)\/#([0-9a-f]{48}))\r?$/m.exec(out) : null), 15_000);
+    const ready = await until(async () => (/Daemon mode: /.test(out) ? /^AgentRoundtable Launcher: (http:\/\/127\.0\.0\.1:(\d+)\/#([0-9a-f]{48}))\r?$/m.exec(out) : null), 15_000);
     assert.ok(ready, `daemon stdout:\n${out}`);
     const running = await spawnClean(process.execPath, [path.join(ROOT, 'room.mjs'), 'daemon', 'status', '--rooms-root', roomsRoot], { timeoutMs: 10_000 });
     assert.equal(running.code, 0, running.stdout + running.stderr);

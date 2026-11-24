@@ -13,11 +13,11 @@ async function expectRed(run) {
   } finally { await r.sim.cleanup(); }
 }
 
-test('#3 变异 no-dedupe（选项）：去掉去重后同一发件箱文件被重判，用例变红', async () => {
+test('#3 mutation no-dedupe (option): without deduplication the same outbox file is re-judged and the case fails', async () => {
   await expectRed(() => scenario({ mutate: 'no-dedupe' }));
 });
 
-test('#3 变异 no-dedupe（ROOM_MUTATE 环境变量）：同上', async () => {
+test('#3 mutation no-dedupe (ROOM_MUTATE env var): same invariant fails', async () => {
   const saved = process.env.ROOM_MUTATE;
   process.env.ROOM_MUTATE = 'no-dedupe';
   try {

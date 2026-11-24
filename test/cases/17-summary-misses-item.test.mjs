@@ -1,4 +1,4 @@
-// Plan §13.1 #17 (仿真 +变异). Mutation: test/mutations/17-no-unanswered.test.mjs (ROOM_MUTATE
+// Plan §13.1 #17 (simulation + mutation). Mutation: test/mutations/17-no-unanswered.test.mjs (ROOM_MUTATE
 // no-unanswered: the room stops computing summary_published.unanswered).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -7,28 +7,28 @@ import { createScriptedSeat } from '../../sim/scripted-seat.mjs';
 
 export async function scenario({ mutate } = {}) {
   const sim = await createSim({ preset: 'discussion', mutate, seats: [{ seatId: 'A', role: 'lead' }, { seatId: 'B', role: 'participant' }, { seatId: 'C', role: 'participant' }] });
-  await sim.admin({ cmd: 'task', text: '条目表' });
+  await sim.admin({ cmd: 'task', text: 'Item table' });
   await sim.admin({ cmd: 'start', order: ['A', 'B', 'C'] });
   const A = createScriptedSeat({
     seatId: 'A',
     script: [
-      { wait: {} }, { submit: 'A：开题（seq 2）' },
+      { wait: {} }, { submit: 'A: opening (seq 2)' },
       { wait: {} },
-      { mark: { item: 'm2p1', status: 'accepted', text: '收下 B 的要点' } },
-      { mark: { item: 'm4', status: 'deferred', text: '下一轮再议' } },
-      { submit: 'A：汇总，漏掉了 B 的第二个要点和 B 的发言本身' },
+      { mark: { item: 'm2p1', status: 'accepted', text: "Accept B's first point" } },
+      { mark: { item: 'm4', status: 'deferred', text: 'Discuss in the next round' } },
+      { submit: "A: summary, omitting B's second point and B's message itself" },
     ],
   });
   const B = createScriptedSeat({
     seatId: 'B',
     script: [
       { wait: {} },
-      { point: { seq: 2, text: '开题缺验收标准' } },
-      { point: { seq: 2, text: '开题没写回滚' } },
-      { submit: 'B：两点意见（seq 3）' },
+      { point: { seq: 2, text: 'Opening is missing acceptance criteria' } },
+      { point: { seq: 2, text: 'Opening does not specify rollback' } },
+      { submit: 'B: two comments (seq 3)' },
     ],
   });
-  const C = createScriptedSeat({ seatId: 'C', script: [{ wait: {} }, { submit: 'C：同意（seq 4）' }] });
+  const C = createScriptedSeat({ seatId: 'C', script: [{ wait: {} }, { submit: 'C: agreed (seq 4)' }] });
   await sim.run([A, B, C]);
   return { sim, A, B, C };
 }
@@ -44,21 +44,21 @@ export function invariants({ sim, A, B }) {
 }
 
 if (isMain(import.meta.url)) {
-  test('#17 汇总漏一条：漏标的条目被标为未回应（summary_published.unanswered）', async () => {
+  test('#17 Summary misses an item: unmarked items are flagged unanswered (summary_published.unanswered)', async () => {
     const r = await scenario();
     await r.sim.check(() => invariants(r));
   });
 
-  test('#17 只有汇总回合的牵头席位能标条目：参与者在 Meet 里给自己的条目标 accepted 不算数，仍是未回应', async () => {
+  test('#17 Only the summary lead in summary phase may mark items: a participant marking its own item in Meet does not count and remains unanswered', async () => {
     const sim = await createSim({ preset: 'discussion', seats: [{ seatId: 'A', role: 'lead' }, { seatId: 'B', role: 'participant' }, { seatId: 'C', role: 'participant' }] });
     await sim.check(async () => {
-      await sim.admin({ cmd: 'task', text: '条目标记权限' });
+      await sim.admin({ cmd: 'task', text: 'Item marking permissions' });
       await sim.admin({ cmd: 'start', order: ['A', 'B', 'C'] });
-      const A = createScriptedSeat({ seatId: 'A', script: [{ wait: {} }, { submit: 'A：开题（seq 2）' }, { wait: {} }, { submit: 'A：汇总，没有标任何条目' }] });
-      const B = createScriptedSeat({ seatId: 'B', script: [{ wait: {} }, { submit: 'B：意见（seq 3）' }] });
+      const A = createScriptedSeat({ seatId: 'A', script: [{ wait: {} }, { submit: 'A: opening (seq 2)' }, { wait: {} }, { submit: 'A: summary without marking any items' }] });
+      const B = createScriptedSeat({ seatId: 'B', script: [{ wait: {} }, { submit: 'B: comment (seq 3)' }] });
       const C = createScriptedSeat({
         seatId: 'C',
-        script: [{ wait: {} }, { mark: { item: 'm3', status: 'rejected', text: '命令通道' } }, { submit: 'C：意见（seq 4）<<ROOM:MARK item=m4 status=accepted>>我自己的条目已解决' }],
+        script: [{ wait: {} }, { mark: { item: 'm3', status: 'rejected', text: 'Command channel' } }, { submit: 'C: comment (seq 4) <<ROOM:MARK item=m4 status=accepted>>My own item is resolved' }],
       });
       await sim.run([A, B, C]);
       assert.equal(sim.ofType('item_marked').length, 0, 'no mark from a non-lead seat is recorded');
@@ -73,13 +73,13 @@ if (isMain(import.meta.url)) {
 
   // GOV-6: the lead files its own point about B's message and marks that point in the same summary
   // turn. The point is the lead's paraphrase, not B's item: B's m3 stays and stays unanswered.
-  test('#17 汇总者给别人的发言加一条自己的要点再标掉：原条目 m3 仍在，仍是未回应', async () => {
+  test("#17 Lead adds its own point about another seat's speech and marks it off: original item m3 remains unanswered", async () => {
     const sim = await createSim({ preset: 'discussion', seats: [{ seatId: 'A', role: 'lead' }, { seatId: 'B', role: 'participant' }] });
     await sim.check(async () => {
-      await sim.admin({ cmd: 'task', text: '条目替换' });
+      await sim.admin({ cmd: 'task', text: 'Item replacement' });
       await sim.admin({ cmd: 'start', order: ['A', 'B'] });
-      const A = createScriptedSeat({ seatId: 'A', script: [{ wait: {} }, { submit: 'A：开题（seq 2）' }, { wait: {} }, { submit: 'A：汇总 <<ROOM:POINT seq=3>> 无关紧要 <<ROOM:MARK item=m3p1 status=rejected>>' }] });
-      const B = createScriptedSeat({ seatId: 'B', script: [{ wait: {} }, { submit: 'B：要害意见（seq 3）' }] });
+      const A = createScriptedSeat({ seatId: 'A', script: [{ wait: {} }, { submit: 'A: opening (seq 2)' }, { wait: {} }, { submit: 'A: summary <<ROOM:POINT seq=3>> Minor detail <<ROOM:MARK item=m3p1 status=rejected>>' }] });
+      const B = createScriptedSeat({ seatId: 'B', script: [{ wait: {} }, { submit: 'B: critical objection (seq 3)' }] });
       await sim.run([A, B]);
       assert.ok(sim.ofType('point_added').some((e) => e.itemId === 'm3p1' && e.seatId === 'A'), "the lead's point was recorded");
       const sp = sim.lastEvent('summary_published');

@@ -1,171 +1,232 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
-<title>圆桌房间</title>
+<title>AgentRoundtable</title>
 <link rel="stylesheet" href="app.css">
 <link rel="stylesheet" href="rt-chat.css">
 </head>
 <body>
 <header class="topbar">
-  <div class="topbar-main">
-    <span id="hdr-brand" class="brand">圆桌房间</span>
-    <span id="hdr-room" class="hdr-item">房间 <b>未知</b></span>
-    <span id="hdr-phase" class="hdr-item">阶段 <b class="badge">未知</b></span>
-    <span id="hdr-round" class="hdr-item">轮 <b>未知</b> · epoch <b>未知</b></span>
-    <span id="hdr-turn" class="hdr-item">当前 <b>未知</b></span>
-    <span id="hdr-seq" class="hdr-item">seq <b>0</b></span>
+  <div class="topbar-left">
+    <span class="brand-mark" aria-hidden="true"></span>
+    <span id="hdr-brand" class="brand">AgentRoundtable</span>
+    <span id="hdr-room" class="hdr-room-pill"><b>Unknown</b></span>
   </div>
-  <div class="topbar-side">
-    <button id="btn-lang" type="button" class="lang-btn" title="Switch UI language to English">EN</button>
-    <span id="hdr-conn" class="conn conn-unknown" title="优先 SSE 实时推送，断线自动回退轮询">连接：未知</span>
-    <span id="hdr-token" class="tok tok-missing">令牌：缺失</span>
+  <div class="topbar-center">
+    <div id="hdr-stepper" class="phase-stepper" aria-label="Round phase">
+      <span class="step" data-step="assign"><span class="step-dot"></span>Assign</span>
+      <span class="step-sep" aria-hidden="true"></span>
+      <span class="step" data-step="work"><span class="step-dot"></span>Work</span>
+      <span class="step-sep" aria-hidden="true"></span>
+      <span class="step" data-step="meet"><span class="step-dot"></span>Meet</span>
+      <span class="step-sep" aria-hidden="true"></span>
+      <span class="step" data-step="summary"><span class="step-dot"></span>Summary</span>
+    </div>
+    <span id="hdr-phase" class="hdr-item"><b class="badge">Unknown</b></span>
+    <span id="hdr-round" class="hdr-chip tabular">R<b>—</b> · E<b>—</b></span>
+    <span id="hdr-turn" class="hdr-chip">Turn <b>—</b></span>
+    <span id="hdr-seq" class="hdr-chip tabular">#<b>0</b></span>
+  </div>
+  <div class="topbar-right">
+    <button id="btn-theme" type="button" class="theme-btn" title="Toggle light / dark theme">Dark</button>
+    <span id="hdr-conn" class="conn conn-unknown" title="Live SSE push with automatic polling fallback">Connecting</span>
+    <span id="hdr-token" class="tok tok-missing">Not loaded</span>
   </div>
 </header>
 
-<div id="approval-inbox" class="rt-inbox hidden" aria-live="polite"></div>
+<div class="workspace-shell">
+  <aside class="sidebar" aria-label="Workspace navigation">
+    <nav class="tabs" id="tabs" aria-label="Views">
+      <div class="nav-group-label">Workspace</div>
+      <button data-view="stream" type="button" class="tab active">Stream</button>
+      <button data-view="seats" type="button" class="tab">Seats</button>
+      <button data-view="packets" type="button" class="tab">Packets</button>
+      <button data-view="task" type="button" class="tab">Task Draft</button>
+      <button data-view="items" type="button" class="tab">Items</button>
+      <button data-view="verdicts" type="button" class="tab">Verdicts</button>
+      <div class="nav-group-label">Operations</div>
+      <button data-view="receipts" type="button" class="tab">Receipts</button>
+      <button data-view="usage" type="button" class="tab">Usage</button>
+      <button data-view="recovery" type="button" class="tab">Recovery</button>
+      <button data-view="merge" type="button" class="tab">Merge</button>
+      <button data-view="contract" type="button" class="tab">Contract</button>
+    </nav>
 
-<div id="token-bar" class="notice warn hidden">
-  URL 片段里没有 admin 令牌（形如 <code>#&lt;token&gt;</code>）。没有令牌只能看，不能动作。
-  <form id="token-form" class="inline-form">
-    <input id="token-input" type="password" autocomplete="off" placeholder="粘贴 admin.token 的内容">
-    <button type="submit">载入到本页（只存内存）</button>
-  </form>
-</div>
-
-<nav class="tabs" id="tabs" aria-label="视图">
-  <button data-view="stream" class="tab active">发言流</button>
-  <button data-view="seats" class="tab">席位栏</button>
-  <button data-view="packets" class="tab">席位包</button>
-  <button data-view="task" class="tab">任务单</button>
-  <button data-view="items" class="tab">条目表</button>
-  <button data-view="verdicts" class="tab">verdict 与冻结</button>
-  <button data-view="receipts" class="tab">回执</button>
-  <button data-view="usage" class="tab">用量</button>
-  <button data-view="recovery" class="tab">恢复</button>
-  <button data-view="merge" class="tab">合并</button>
-  <button data-view="contract" class="tab">契约</button>
-</nav>
-
-<main id="main">
-
-<section id="view-stream" class="view active" data-view="stream">
-  <div class="rt-mode-bar">
-    <div id="stream-mode-tabs" class="rt-mode-tabs" role="tablist">
-      <button type="button" class="rt-mode-btn is-active" data-stream-mode="chat">群聊视图</button>
-      <button type="button" class="rt-mode-btn" data-stream-mode="arena">并排对比（Arena）</button>
-      <button type="button" class="rt-mode-btn" data-stream-mode="log">原始事件流</button>
+    <div class="sidebar-section">
+      <div class="nav-group-label">Seat Roster</div>
+      <div id="sidebar-seats" class="sidebar-seats"></div>
     </div>
-  </div>
-  <div id="chat-view"></div>
-  <div id="arena-view" class="hidden"></div>
-  <div id="raw-log-wrap" class="hidden">
-    <div id="task-box" class="card task-box"></div>
-    <ol id="stream" class="stream"></ol>
-  </div>
-  <div class="rt-composer">
-    <form id="form-say" class="rt-composer-row" data-action="say">
-      <textarea id="composer-input" name="text" class="rt-composer-input" rows="2" placeholder="输入消息排队（Ctrl+Enter 发送；普通 Enter 换行）" required></textarea>
-      <div class="rt-composer-btns">
-        <button id="btn-composer-send" type="submit" class="primary"><span class="btn-label">发送消息</span> <code>say</code></button>
+
+    <div id="sidebar-usage" class="sidebar-usage"></div>
+  </aside>
+
+  <div class="main-stage">
+    <div id="token-bar" class="notice warn hidden">
+      <div class="notice-text">No admin token in URL fragment (<code>#&lt;token&gt;</code>). Read-only mode is active until a token is loaded into page memory.</div>
+      <form id="token-form" class="inline-form">
+        <input id="token-input" type="password" autocomplete="off" placeholder="Paste admin.token value">
+        <button type="submit" class="primary btn-small">Load into Memory</button>
+      </form>
+    </div>
+
+    <div id="approval-inbox" class="rt-inbox hidden" aria-live="polite"></div>
+
+    <main id="main">
+
+    <section id="view-stream" class="view active" data-view="stream">
+      <div class="rt-mode-bar">
+        <div id="stream-mode-tabs" class="rt-mode-tabs" role="tablist">
+          <button type="button" class="rt-mode-btn is-active" data-stream-mode="chat">Group Chat</button>
+          <button type="button" class="rt-mode-btn" data-stream-mode="arena">Arena Compare</button>
+          <button type="button" class="rt-mode-btn" data-stream-mode="log">Raw Log</button>
+        </div>
       </div>
-    </form>
-    <div class="actions">
-      <form id="form-interrupt" class="inline-form" data-action="interrupt">
-        <input id="interrupt-input" name="text" type="text" placeholder="打断说明（可空）">
-        <button id="btn-composer-interrupt" type="submit" class="danger"><span class="btn-label">打断并重开</span> <code>interrupt</code></button>
+
+      <details id="task-card-wrap" class="task-card-collapsible" open>
+        <summary class="task-card-summary">
+          <span class="task-card-title">Room Objective</span>
+          <span class="badge user">authority=user</span>
+          <span id="task-card-preview" class="task-card-preview"></span>
+        </summary>
+        <div id="task-box" class="task-box"></div>
+      </details>
+
+      <div id="chat-view"></div>
+      <div id="arena-view" class="hidden"></div>
+      <div id="raw-log-wrap" class="hidden">
+        <ol id="stream" class="stream"></ol>
+      </div>
+
+      <div class="rt-composer">
+        <form id="form-say" class="rt-composer-card" data-action="say">
+          <textarea id="composer-input" name="text" class="rt-composer-input" rows="2" placeholder="Queue a message for seats (Ctrl+Enter to send, Enter for newline)…" required></textarea>
+          <div class="rt-composer-bar">
+            <span class="rt-composer-hint">Ctrl+Enter to send · queued for next turn boundary</span>
+            <button id="btn-composer-send" type="submit" class="primary"><span class="btn-label">Send</span> <code>say</code></button>
+          </div>
+        </form>
+        <div class="rt-controls-strip">
+          <form id="form-stream-start" class="rt-start-form" data-action="start">
+            <span class="rt-controls-label">Next Round</span>
+            <div id="stream-order-chips" class="rt-order-chips"></div>
+            <input id="stream-order-input" name="order" type="text" placeholder="Seat order, e.g. A,B,A (optional)">
+            <button id="btn-composer-start" type="submit" class="btn-small"><span class="btn-label">Start Round</span> <code>start</code></button>
+          </form>
+          <details class="rt-danger-disclosure">
+            <summary>Interrupt &amp; Reverse</summary>
+            <div class="rt-danger-body">
+              <form id="form-interrupt" class="inline-form" data-action="interrupt">
+                <input id="interrupt-input" name="text" type="text" placeholder="Interrupt note (optional)">
+                <button id="btn-composer-interrupt" type="submit" class="danger btn-small"><span class="btn-label">Interrupt &amp; Reopen</span> <code>interrupt</code></button>
+              </form>
+              <button type="button" class="danger btn-small" data-action="reverse">Reverse Roles <code>reverse</code></button>
+            </div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-seats" class="view" data-view="seats">
+      <div class="view-head">
+        <h2>Seats</h2>
+        <div class="view-head-actions">
+          <button id="btn-reverse" type="button" class="danger btn-small" data-action="reverse">Reverse Roles <code>reverse</code></button>
+        </div>
+      </div>
+      <p class="hint">Role reversal requires the current attempt to be terminal; otherwise the service refuses and logs the attempt.</p>
+      <div class="scroll-x"><table id="seats-table" class="table"></table></div>
+      <p class="hint">Audit observations only report "no writes observed under this method"; seats without an attached audit source are marked "Unaudited".</p>
+    </section>
+
+    <section id="view-packets" class="view" data-view="packets">
+      <div class="view-head"><h2>Seat Packets</h2></div>
+      <div id="packets-list" class="cards"></div>
+    </section>
+
+    <section id="view-task" class="view" data-view="task">
+      <div class="view-head"><h2>Task Draft</h2></div>
+      <div id="task-draft" class="card"></div>
+      <div class="actions">
+        <button id="btn-confirm-task" type="button" class="primary" data-action="confirm-task">Confirm Task <code>confirm-task</code></button>
+        <form id="form-deny-task" class="inline-form" data-action="interrupt">
+          <input name="text" type="text" placeholder="Rejection reason (shown to Lead in reopened turn)">
+          <button type="submit" class="danger">Reject Draft <code>interrupt</code></button>
+        </form>
+      </div>
+      <form id="form-manual-task" class="card block-form" data-action="task">
+        <label>Manual Task Specification (<code>task</code> — still requires Confirm Task afterwards)</label>
+        <textarea name="text" rows="5" placeholder="One per line: - <seatId>: <task> | Acceptance: [&quot;node&quot;,&quot;--test&quot;]" required></textarea>
+        <div class="actions">
+          <button type="submit">Submit Manual Task <code>task</code></button>
+        </div>
       </form>
-      <form id="form-stream-start" class="inline-form" data-action="start">
-        <input id="stream-order-input" name="order" type="text" placeholder="发言顺序，如 A,B,A（可空默认）">
-        <button id="btn-composer-start" type="submit"><span class="btn-label">开新轮</span> <code>start</code></button>
-      </form>
-      <div id="stream-order-chips" class="rt-order-chips"></div>
-    </div>
+    </section>
+
+    <section id="view-items" class="view" data-view="items">
+      <div class="view-head"><h2>Items &amp; Points</h2></div>
+      <div class="scroll-x"><table id="items-table" class="table"></table></div>
+      <h3>Misquote Declarations</h3>
+      <div class="card"><ul id="misquoted-list" class="plain"></ul></div>
+    </section>
+
+    <section id="view-verdicts" class="view" data-view="verdicts">
+      <div class="view-head"><h2>Verdicts &amp; Frozen Artifacts</h2></div>
+      <div id="artifacts-list" class="cards"></div>
+      <h3>Disclosure Requests</h3>
+      <div id="disclosures-list" class="cards"></div>
+      <p id="adjudication-hint" class="hint"></p>
+    </section>
+
+    <section id="view-receipts" class="view" data-view="receipts">
+      <div class="view-head"><h2>Delivery Receipts</h2></div>
+      <div class="scroll-x"><table id="receipts-table" class="table"></table></div>
+      <p class="hint"><code>present</code> and <code>header_only</code> are checked by the auditor in the registered transcript by <code>packetId</code>; they confirm delivery to the agent log, not model comprehension. "Resend" pushes another wake signal (<code>wake</code>) so the seat reads the same packet on its next wait.</p>
+    </section>
+
+    <section id="view-usage" class="view" data-view="usage">
+      <div class="view-head"><h2>Token Usage &amp; Budget</h2></div>
+      <div id="usage-summary" class="card"></div>
+      <div class="scroll-x"><table id="usage-table" class="table"></table></div>
+      <div class="actions">
+        <form id="form-cap" class="inline-form" data-action="change-cap">
+          <input name="maxTokens" type="number" min="0" placeholder="New token cap">
+          <button type="submit">Change Cap</button>
+        </form>
+        <form id="form-continue" class="inline-form" data-action="start">
+          <input name="order" type="text" placeholder="Seat order, e.g. A,B,A (default: previous)">
+          <button type="submit">Resume <code>start</code></button>
+        </form>
+        <button type="button" data-action="skip">Skip Turn <code>skip</code></button>
+        <button type="button" class="danger" data-action="close">Close Room <code>close</code></button>
+      </div>
+    </section>
+
+    <section id="view-recovery" class="view" data-view="recovery">
+      <div class="view-head"><h2>Recovery &amp; Reconciliation</h2></div>
+      <div id="recovery-list" class="cards"></div>
+    </section>
+
+    <section id="view-merge" class="view" data-view="merge">
+      <div class="view-head"><h2>Merge Conflicts</h2></div>
+      <div class="scroll-x"><table id="merge-table" class="table"></table></div>
+    </section>
+
+    <section id="view-contract" class="view" data-view="contract">
+      <div class="view-head">
+        <h2>Contract &amp; Audit</h2>
+        <div class="view-head-actions">
+          <button id="btn-export" type="button" class="primary btn-small" data-action="export-evidence">Export Evidence JSON</button>
+        </div>
+      </div>
+      <div id="contract-box" class="cards"></div>
+    </section>
+
+    </main>
   </div>
-</section>
-
-<section id="view-seats" class="view" data-view="seats">
-  <div class="actions">
-    <button id="btn-reverse" class="danger" data-action="reverse">整体换向 <code>reverse</code></button>
-    <span class="hint">换向要求当前 attempt 已终态；否则服务拒绝并记录。</span>
-  </div>
-  <div class="scroll-x"><table id="seats-table" class="table"></table></div>
-  <p class="hint">审计观测只能说「在该方法下未观测到写操作」；审计不到的席位标「未审计」。</p>
-</section>
-
-<section id="view-packets" class="view" data-view="packets">
-  <div id="packets-list" class="cards"></div>
-</section>
-
-<section id="view-task" class="view" data-view="task">
-  <div id="task-draft" class="card"></div>
-  <div class="actions">
-    <button id="btn-confirm-task" data-action="confirm-task">确认任务单 <code>confirm-task</code></button>
-    <form id="form-deny-task" class="inline-form" data-action="interrupt">
-      <input name="text" type="text" placeholder="驳回理由（主力会在重开的回合里看到）">
-      <button type="submit" class="danger">驳回草案 <code>interrupt</code></button>
-    </form>
-  </div>
-  <form id="form-manual-task" class="block-form" data-action="task">
-    <label>手填任务（<code>task</code>；填好后仍需「确认任务单」）</label>
-    <textarea name="text" rows="5" placeholder="每行一条：- <seatId>: <任务> | 验收: [&quot;node&quot;,&quot;--test&quot;]" required></textarea>
-    <button type="submit">提交手填任务 <code>task</code></button>
-  </form>
-</section>
-
-<section id="view-items" class="view" data-view="items">
-  <div class="scroll-x"><table id="items-table" class="table"></table></div>
-  <h3>被误述声明</h3>
-  <ul id="misquoted-list" class="plain"></ul>
-</section>
-
-<section id="view-verdicts" class="view" data-view="verdicts">
-  <div id="artifacts-list" class="cards"></div>
-  <h3>披露请求</h3>
-  <div id="disclosures-list" class="cards"></div>
-  <p id="adjudication-hint" class="hint"></p>
-</section>
-
-<section id="view-receipts" class="view" data-view="receipts">
-  <div class="scroll-x"><table id="receipts-table" class="table"></table></div>
-  <p class="hint">present / header_only 由审计器在登记线程里按 packetId 查到；证明包到了 agent 的进程与日志，不证明模型读了。「重发」= 再推一次唤醒（<code>wake</code>），席位下一次 wait 取同一个包。</p>
-</section>
-
-<section id="view-usage" class="view" data-view="usage">
-  <div id="usage-summary" class="card"></div>
-  <div class="scroll-x"><table id="usage-table" class="table"></table></div>
-  <div class="actions">
-    <form id="form-cap" class="inline-form" data-action="change-cap">
-      <input name="maxTokens" type="number" min="0" placeholder="新的 token 上限">
-      <button type="submit">改上限</button>
-    </form>
-    <form id="form-continue" class="inline-form" data-action="start">
-      <input name="order" type="text" placeholder="顺序，如 A,B,A（默认沿用上一轮）">
-      <button type="submit">继续 <code>start</code></button>
-    </form>
-    <button data-action="skip">跳过 <code>skip</code></button>
-    <button class="danger" data-action="close">结束 <code>close</code></button>
-  </div>
-</section>
-
-<section id="view-recovery" class="view" data-view="recovery">
-  <div id="recovery-list" class="cards"></div>
-</section>
-
-<section id="view-merge" class="view" data-view="merge">
-  <div class="scroll-x"><table id="merge-table" class="table"></table></div>
-</section>
-
-<section id="view-contract" class="view" data-view="contract">
-  <div id="contract-box" class="cards"></div>
-  <div class="actions">
-    <button id="btn-export" data-action="export-evidence">导出证据（本页已拉取的 state + events，JSON）</button>
-  </div>
-</section>
-
-</main>
+</div>
 
 <div id="toasts" class="toasts" aria-live="polite"></div>
 <script src="rt-i18n.js"></script>

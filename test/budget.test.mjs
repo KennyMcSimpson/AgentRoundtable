@@ -62,11 +62,12 @@ test('trimMessages: custom sizeOf and unsorted input; input not mutated', () => 
   assert.equal(JSON.stringify(messages), snapshot);
 });
 
-test('trimMessages: default sizeOf is UTF-8 byte length (Chinese counts 3 bytes per char)', () => {
-  const messages = [msg(2, '你好'), msg(3, 'ok')];
-  const r = trimMessages({ messages, maxBytes: 2 });
+test('trimMessages: default sizeOf is UTF-8 byte length (multi-byte UTF-8 chars count by bytes)', () => {
+  const messages = [msg(2, 'éè'), msg(3, 'ok')];
+  const r = trimMessages({ messages, maxBytes: 4 });
   assert.deepEqual(r.kept.map((m) => m.seq), [3]);
-  assert.equal(sumBytes(messages), bytes('你好') + 2);
+  assert.equal(bytes('éè'), 4);
+  assert.equal(sumBytes(messages), bytes('éè') + 2);
 });
 
 test('computePins: current round, quotes (numbers and objects), explicit quoted, summary, extra', () => {
@@ -93,7 +94,7 @@ test('mergeDropped: overlapping and touching ranges collapse, sorted output', ()
   assert.deepEqual(mergeDropped([{ fromSeq: 'x', toSeq: 1 }]), []);
 });
 
-test('describeDropped renders Chinese-friendly ranges', () => {
-  assert.equal(describeDropped([{ fromSeq: 2, toSeq: 5 }, { fromSeq: 9, toSeq: 9 }]), 'seq 2–5、seq 9');
+test('describeDropped renders human-readable English ranges', () => {
+  assert.equal(describeDropped([{ fromSeq: 2, toSeq: 5 }, { fromSeq: 9, toSeq: 9 }]), 'seq 2–5, seq 9');
   assert.equal(describeDropped([]), '');
 });

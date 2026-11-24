@@ -84,7 +84,7 @@ describe('classifyFailure', () => {
   });
   test('ASCII identifier token in a message counts; localized or plain sentences do not', () => {
     assert.equal(classifyFailure(new Error('provider returned insufficient_quota for org')), 'quota_exhausted');
-    assert.equal(classifyFailure(new Error('配额已用尽，请充值')), 'other');
+    assert.equal(classifyFailure(new Error('Quota \u00e9puis\u00e9, veuillez recharger')), 'other');
     assert.equal(classifyFailure(new Error('Rate limit exceeded, retry later')), 'other');
     assert.equal(classifyFailure(new Error('Too many requests')), 'other');
   });
@@ -115,7 +115,7 @@ describe('resolveAllowed', () => {
     try { fs.symlinkSync(path.join(root, 'out'), link, 'junction'); } catch { t.skip('cannot create symlink here'); return; }
     const r = resolveAllowed([path.join(root, 'in')], 'escape/x.txt', path.join(root, 'in'));
     assert.equal(r.ok, false);
-    assert.match(r.reason, /符号链接/);
+    assert.match(r.reason, /symlink/);
     assert.equal(resolveAllowed([path.join(root, 'in')], 'escape', path.join(root, 'in')).ok, false);
   });
   test('a dangling link (target missing or unresolvable) is refused, not treated as a fresh path', (t) => {
@@ -123,7 +123,7 @@ describe('resolveAllowed', () => {
     try { fs.symlinkSync(path.join(root, 'nowhere'), link, 'junction'); } catch { t.skip('cannot create symlink here'); return; }
     const r = resolveAllowed([path.join(root, 'in')], 'dangle/new.txt', path.join(root, 'in'));
     assert.equal(r.ok, false);
-    assert.match(r.reason, /符号链接/);
+    assert.match(r.reason, /symlink/);
   });
   test('a root reached through a junction is compared by its real location', (t) => {
     const alias = path.join(root, 'in-alias');
@@ -225,7 +225,7 @@ describe('buildSystemPrompt / buildTools', () => {
   test('prompt names the tier and cwd', () => {
     for (const tier of TIERS) assert.ok(buildSystemPrompt({ tier, cwd: 'E:\\x' }).length > 20);
     assert.match(buildSystemPrompt({ tier: 'exec', cwd: 'E:\\x' }), /E:\\x/);
-    assert.match(buildSystemPrompt({ tier: 'discussion', cwd: 'E:\\x' }), /没有任何工具/);
+    assert.match(buildSystemPrompt({ tier: 'discussion', cwd: 'E:\\x' }), /no tools/);
   });
   test('tool sets per tier', () => {
     const ctx = { cwd: 'E:\\x', readRoots: [], guard: null, emit() {}, limits: {}, requestPermission() {}, spawn: null };
@@ -274,12 +274,12 @@ describe('discussion tier', () => {
   after(() => fs.rmSync(root, { recursive: true, force: true }));
 
   test('prompt returns end_turn with text and normalized usage; session created once; key never leaks', async () => {
-    const { seat, events, provider } = mkSeat(root, { script: [{ text: '第一轮发言', usage: { inputTokens: 100, outputTokens: 20 } }, { text: '第二轮' }] });
+    const { seat, events, provider } = mkSeat(root, { script: [{ text: 'Round 1 speech', usage: { inputTokens: 100, outputTokens: 20 } }, { text: 'Round 2' }] });
     const r1 = await seat.prompt('packet 1');
-    assert.equal(r1.stopReason, 'end_turn'); assert.equal(r1.text, '第一轮发言');
+    assert.equal(r1.stopReason, 'end_turn'); assert.equal(r1.text, 'Round 1 speech');
     assert.deepEqual(r1.usage, { input: 100, output: 20, cached: 0 });
     const r2 = await seat.prompt('packet 2');
-    assert.equal(r2.text, '第二轮');
+    assert.equal(r2.text, 'Round 2');
     assert.equal(provider.calls.createSession, 1);
     assert.equal(provider.calls.prompt, 2);
     assert.ok(events.some((e) => e.type === 'session_created' && e.tier === 'discussion'));
@@ -433,7 +433,7 @@ describe('reviewer tier (read-only tools)', () => {
     fs.writeFileSync(path.join(cwd, 'src', 'b.txt'), 'nothing here\nexport nothing\n');
     fs.writeFileSync(path.join(cwd, 'bin.dat'), Buffer.from([1, 2, 0, 4]));
     fs.mkdirSync(path.join(cwd, 'node_modules', 'dep'), { recursive: true }); fs.writeFileSync(path.join(cwd, 'node_modules', 'dep', 'x.mjs'), 'export const x = 2;');
-    materials = path.join(root, 'materials'); fs.mkdirSync(materials); fs.writeFileSync(path.join(materials, 'm.md'), '# 材料\n');
+    materials = path.join(root, 'materials'); fs.mkdirSync(materials); fs.writeFileSync(path.join(materials, 'm.md'), '# Material\n');
     fs.writeFileSync(path.join(root, 'secret.txt'), 'outside');
   });
   after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -458,7 +458,7 @@ describe('reviewer tier (read-only tools)', () => {
     assert.deepEqual(seen[0], ['read_file', 'list_dir', 'grep']);
     assert.equal(seen[1].content[0].text, '2\texport const x = 1;');
     assert.equal(seen[1].details.totalLines, 4);
-    assert.match(seen[2].content[0].text, /材料/);
+    assert.match(seen[2].content[0].text, /Material/);
     assert.equal(seen[3].details.binary, true);
     assert.equal(events.filter((e) => e.type === 'tool_call' && e.tool === 'read_file').length, 2);
     await seat.dispose();
@@ -469,7 +469,7 @@ describe('reviewer tier (read-only tools)', () => {
     const { seat, events } = reviewerSeat([async ({ callTool }) => { res = await callTool('read_file', { path: '../secret.txt' }); return { text: 'x' }; }]);
     await seat.prompt('p');
     assert.equal(res.details.denied, true);
-    assert.match(res.content[0].text, /拒绝/);
+    assert.match(res.content[0].text, /Denied:/);
     const d = events.find((e) => e.type === 'tool_denied');
     assert.equal(d.tool, 'read_file');
     assert.ok(!events.some((e) => e.type === 'permission_pending'), 'reviewer refusals are not permission requests');
@@ -526,11 +526,11 @@ describe('exec tier (write / edit / exec with interception)', () => {
 
   test('write inside cwd goes through the guard and is logged in the seat session dir', async () => {
     let res;
-    const { seat, events } = execSeat([async ({ callTool }) => { res = await callTool('write_file', { path: 'out/new.txt', content: '你好\n' }); return { text: 'x' }; }]);
+    const { seat, events } = execSeat([async ({ callTool }) => { res = await callTool('write_file', { path: 'out/new.txt', content: 'hello-\u00e9\n' }); return { text: 'x' }; }]);
     assert.deepEqual(seat.tools, ['read_file', 'list_dir', 'grep', 'write_file', 'edit_file', 'exec']);
     await seat.prompt('p');
-    assert.equal(fs.readFileSync(path.join(cwd, 'out', 'new.txt'), 'utf8'), '你好\n');
-    assert.equal(res.details.bytes, Buffer.byteLength('你好\n'));
+    assert.equal(fs.readFileSync(path.join(cwd, 'out', 'new.txt'), 'utf8'), 'hello-\u00e9\n');
+    assert.equal(res.details.bytes, Buffer.byteLength('hello-\u00e9\n'));
     const log = fs.readFileSync(path.join(root, 'session-e', 'write-log.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
     assert.ok(log.some((l) => l.op === 'write' && l.path.toLowerCase() === path.join(cwd, 'out', 'new.txt').toLowerCase()));
     assert.ok(log.every((l) => l.path.toLowerCase().startsWith(cwd.toLowerCase()) || l.path.toLowerCase().startsWith(path.join(root, 'session-e').toLowerCase())));
@@ -553,7 +553,7 @@ describe('exec tier (write / edit / exec with interception)', () => {
     assert.equal(out.outside.details.pending, true); assert.equal(out.outside.details.category, 'write_outside_cwd');
     assert.equal(out.git.details.category, 'git_internal');
     assert.equal(out.outbox.details.category, 'outbox');
-    assert.match(out.outside.content[0].text, /待审批/);
+    assert.match(out.outside.content[0].text, /Pending approval:/);
     const pend = events.filter((e) => e.type === 'permission_pending');
     assert.equal(pend.length, 3);
     assert.deepEqual(seat.pendingPermissions().map((p) => p.category), ['write_outside_cwd', 'git_internal', 'outbox']);
@@ -766,7 +766,7 @@ describe('createFakeProvider', () => {
     assert.deepEqual(await s.prompt('x'), { text: 'a', usage: { input: 10, output: 5, cached: 0 }, stopReason: 'stop', error: undefined, toolResults: [] });
     const r2 = await s.prompt('y');
     assert.equal(r2.text, 'b'); assert.equal(r2.usage, null); assert.deepEqual(calls, [{ v: 1 }]);
-    assert.equal((await s.prompt('z')).text, '（空脚本）');
+    assert.equal((await s.prompt('z')).text, '(empty script)');
     await s.abort(); await s.dispose();
     assert.deepEqual(prov.calls, { createSession: 1, prompt: 3, abort: 1, dispose: 1 });
   });
@@ -835,11 +835,11 @@ describe('createSdkProvider (mocked SDK surface)', () => {
     const s = await createSdkProvider(sdk).createSession(init());
     session.replies = [
       { role: 'assistant', content: [{ type: 'text', text: 'thinking...' }, { type: 'toolCall' }], usage: { input: 5, output: 1, cacheRead: 2 }, stopReason: 'toolUse' },
-      { role: 'assistant', content: [{ type: 'text', text: '最终' }], usage: { input: 7, output: 3 }, stopReason: 'stop' },
+      { role: 'assistant', content: [{ type: 'text', text: 'Final' }], usage: { input: 7, output: 3 }, stopReason: 'stop' },
     ];
     const r = await s.prompt('hello');
     assert.deepEqual(session.prompted, ['hello']);
-    assert.equal(r.text, '最终'); assert.equal(r.stopReason, 'stop');
+    assert.equal(r.text, 'Final'); assert.equal(r.stopReason, 'stop');
     assert.deepEqual(r.usage, { input: 12, output: 4, cached: 2 });
     assert.equal(session.idleWaited, true);
     session.replies = [{ role: 'assistant', content: [{ type: 'text', text: '' }], stopReason: 'error', errorMessage: 'rate_limit_error' }];
@@ -858,11 +858,11 @@ describe('createSdkProvider (mocked SDK surface)', () => {
     const root = testRoot();
     try {
       const { sdk, session } = mockSdk();
-      session.replies = [{ role: 'assistant', content: [{ type: 'text', text: '来自 SDK' }], usage: { input: 1, output: 2 }, stopReason: 'stop' }];
+      session.replies = [{ role: 'assistant', content: [{ type: 'text', text: 'From SDK' }], usage: { input: 1, output: 2 }, stopReason: 'stop' }];
       const events = [];
       const seat = createPiSeat({ tier: 'discussion', apiKey: KEY, model: 'anthropic/claude-x', cwd: root, sessionDir: path.join(root, 's'), provider: createSdkProvider(sdk), onEvent: (e) => events.push(e) });
       const r = await seat.prompt('packet');
-      assert.equal(r.text, '来自 SDK'); assert.equal(r.stopReason, 'end_turn'); assert.deepEqual(r.usage, { input: 1, output: 2, cached: 0 });
+      assert.equal(r.text, 'From SDK'); assert.equal(r.stopReason, 'end_turn'); assert.deepEqual(r.usage, { input: 1, output: 2, cached: 0 });
       assertNoKey(root, events, r);
       await seat.dispose();
     } finally { fs.rmSync(root, { recursive: true, force: true }); }

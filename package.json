@@ -1,14 +1,37 @@
 {
-  "name": "room-dev",
-  "private": true,
+  "name": "agent-roundtable",
   "version": "0.2.0",
   "license": "MIT",
-  "description": "Governed multi-agent roundtable: turn moderation, Work/Meet/Summary governance, artifact freeze & recompute, snapshot-isolated disclosure, native-log audit, group-chat & Arena UI, SSE multi-room daemon, zh-CN/en bilingual support, zero npm dependencies.",
+  "description": "Governed multi-agent roundtable for the coding agents you already run: deterministic turn moderation, Work/Meet/Summary governance, artifact freeze & recompute, snapshot-isolated disclosure, native-log audit, group-chat & Arena UI, SSE multi-room daemon, zero runtime dependencies.",
   "type": "module",
   "bin": {
+    "agent-roundtable": "./room.mjs",
     "room-dev": "./room.mjs"
   },
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/KennyMcSimpson/AgentRoundtable.git"
+  },
+  "homepage": "https://github.com/KennyMcSimpson/AgentRoundtable#readme",
+  "bugs": {
+    "url": "https://github.com/KennyMcSimpson/AgentRoundtable/issues"
+  },
+  "keywords": [
+    "multi-agent",
+    "coding-agents",
+    "roundtable",
+    "governance",
+    "codex",
+    "claude-code",
+    "antigravity",
+    "gemini",
+    "local-first",
+    "sse",
+    "zero-dependencies"
+  ],
   "scripts": {
     "test": "node --test \"test/**/*.test.mjs\"",
     "e2e": "node test/e2e.mjs",

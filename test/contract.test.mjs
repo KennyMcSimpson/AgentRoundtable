@@ -218,11 +218,11 @@ test('check-writes CLI: clean synthetic room exits 0 with PASS lines and RAW pat
   const lines = [];
   const code = checkWritesMain([rd], { out: (l) => lines.push(l) });
   assert.equal(code, 0, lines.join('\n'));
-  assert.ok(lines.some((l) => /^PASS write-log\(room\): 2 条写入/.test(l)));
+  assert.ok(lines.some((l) => /^PASS write-log\(room\): 2 writes/.test(l)));
   assert.ok(lines.some((l) => /^PASS write-log\(seat A\)/.test(l)));
   assert.ok(lines.some((l) => l === `RAW ${path.join(seats[0].outbox, 'write-log.jsonl')}`));
   assert.ok(lines.every((l) => !l.startsWith('FAIL')));
-  assert.ok(lines.filter((l) => l.startsWith('PASS')).every((l) => /未观测到/.test(l)));
+  assert.ok(lines.filter((l) => l.startsWith('PASS')).every((l) => /not observed/i.test(l)));
 });
 
 test('check-writes CLI NEGATIVE CONTROL: planted out-of-bounds writes make it exit 1', () => {
@@ -244,7 +244,7 @@ test('check-writes CLI: an empty room log is a FAIL (nothing observed is not a p
   guard.writeFile(path.join(rd, 'write-log.jsonl'), '');
   const lines = [];
   assert.equal(checkWritesMain([rd], { out: (l) => lines.push(l) }), 1);
-  assert.ok(lines.some((l) => /^FAIL write-log\(room\): .*为空/.test(l)));
+  assert.ok(lines.some((l) => /^FAIL write-log\(room\): .*empty/.test(l)));
 });
 
 test('collectSeats reads outbox and cwd from room.json and adds explicit outboxes', () => {
@@ -301,11 +301,11 @@ test('compareReport: unchanged set passes; foreign start passes with wording; ro
   const before = ps([[1, 'claude.exe']]);
   let rep = await compareReport({ before, after: ps([[1, 'claude.exe']]) });
   assert.equal(rep.ok, true);
-  assert.match(rep.lines[0], /^PASS pids\(agents\): .*未观测到/);
+  assert.match(rep.lines[0], /^PASS pids\(agents\): .*not observed/i);
   const after = { ...ps([[1, 'claude.exe'], [2, 'claude.exe']]), parents: [{ pid: 2, ppid: 1, name: 'claude.exe' }] };
   rep = await compareReport({ before, after, roomPids: [700] });
   assert.equal(rep.ok, true);
-  assert.match(rep.lines[0], /^PASS pids\(agents\): agent 进程集合有 1 个新增/);
+  assert.match(rep.lines[0], /^PASS pids\(agents\): agent process set had 1 added/);
   rep = await compareReport({ before, after, roomPids: [1] });
   assert.equal(rep.ok, false);
   assert.ok(rep.lines.some((l) => /^FAIL pids\(agents\)/.test(l)));
@@ -323,12 +323,12 @@ test('filterServiceCommandLines matches room.mjs serve for one room only', () =>
   assert.deepEqual(filterServiceCommandLines(rows).map((p) => p.pid), [1, 2]);
 });
 
-// W9: PowerShell 5.1 writes redirected output in the OEM code page (CP936 here); without the UTF-8
-// switch a Chinese room path in a command line decodes to U+FFFD and the service is never found.
-test('findRoomServiceProcesses finds a live `room.mjs serve` whose room path is Chinese', { skip: !WIN && 'Windows only' }, async () => {
+// W9: PowerShell 5.1 writes redirected output in the OEM code page; without the UTF-8
+// switch a non-ASCII room path in a command line decodes to U+FFFD and the service is never found.
+test('findRoomServiceProcesses finds a live `room.mjs serve` whose room path is non-ASCII UTF-8', { skip: !WIN && 'Windows only' }, async () => {
   const { runDir, guard } = scratch();
-  const fakeApp = path.join(runDir, '应用');
-  const roomDir = path.join(runDir, '房间 中文');
+  const fakeApp = path.join(runDir, 'app-café');
+  const roomDir = path.join(runDir, 'café über');
   guard.mkdir(fakeApp);
   guard.mkdir(roomDir);
   const ready = path.join(roomDir, 'ready');
@@ -349,8 +349,8 @@ test('findRoomServiceProcesses finds a live `room.mjs serve` whose room path is 
     const pid = Number(fs.readFileSync(ready, 'utf8'));
     const { findRoomServiceProcesses } = await import('../contract/pids.mjs');
     const found = await findRoomServiceProcesses({ roomDir });
-    assert.deepEqual(found.map((p) => p.pid), [pid], `service for the Chinese room found; got ${JSON.stringify(found)}`);
-    assert.ok(found[0].cmd.includes('房间 中文'), `command line decoded as UTF-8: ${found[0].cmd}`);
+    assert.deepEqual(found.map((p) => p.pid), [pid], `service for the non-ASCII room found; got ${JSON.stringify(found)}`);
+    assert.ok(found[0].cmd.includes('café über'), `command line decoded as UTF-8: ${found[0].cmd}`);
   } finally {
     guard.writeFile(stop, '1');
     const r = await child;
@@ -461,11 +461,11 @@ test('parseContractLines groups details and RAW paths; pickRaw and planRowFor ro
   const roomLog = ['', 'r', 'room', 'write-log.jsonl'].join(sep);
   const seatLog = ['', 'r', 'cwdA', '.room-outbox', 'A', 'write-log.jsonl'].join(sep);
   const text = [
-    'PASS location(room): 在 realpath 比对下未观测到…',
-    'FAIL write-log(room): 3 条写入，观测到 1 条越界',
+    'PASS location(room): redirection was not observed under realpath comparison',
+    'FAIL write-log(room): 3 writes; 1 out-of-bounds entry was observed',
     '  outside_room_dir who=service op=write path=/x',
     `RAW ${roomLog}`,
-    'PASS write-log(seat A): 在 write-log 方法下未观测到…',
+    'PASS write-log(seat A): writes outside outbox were not observed under the write-log method',
     `RAW ${seatLog}`,
     'INFO noise: x',
   ].join('\n');
@@ -491,16 +491,16 @@ test('renderReport: table with raw paths, escaped pipes, commands and failure de
   const md = renderReport({
     takenAt: '2026-10-01T00:00:00Z', runDir: '/r', nodeVersion: 'v22', platform: 'linux-x64',
     rows: [
-      { check: 'write-log(room)', plan: '#40', kind: 'PASS', text: '在 write-log 方法下未观测到房间目录之外的写入', raws: ['/r/room/write-log.jsonl'] },
+      { check: 'write-log(room)', plan: '#40', kind: 'PASS', text: 'writes outside the room directory were not observed under the write-log method', raws: ['/r/room/write-log.jsonl'] },
       { check: 'env(seat-exit)', plan: '#42', kind: 'FAIL', text: 'a | b', details: ['detail one'], raws: ['/r/env.log'] },
     ],
     stages: [{ name: 'check-writes', argv: ['/usr/bin/node', 'contract/check-writes.mjs', '/r/my room'], cwd: '/repo', code: 0, durationMs: 1200, log: '/r/check-writes.log', raws: ['/r/room/write-log.jsonl'] }],
   });
-  assert.match(md, /\| 检查 \| 方案条目 \| 结果 \| 原始记录 \|/);
-  assert.match(md, /\| write-log\(room\) \| #40 \| \*\*PASS\*\* 在 write-log 方法下未观测到/);
+  assert.match(md, /\| Check \| Clause \| Result \| Raw Record \|/);
+  assert.match(md, /\| write-log\(room\) \| #40 \| \*\*PASS\*\* writes outside the room directory were not observed/);
   assert.match(md, /a \\\| b/);
-  assert.match(md, /## 失败明细[\s\S]*detail one/);
+  assert.match(md, /## Failure Details[\s\S]*detail one/);
   assert.match(md, /\/usr\/bin\/node contract\/check-writes\.mjs "\/r\/my room"/);
-  assert.match(md, /合计：PASS 1　FAIL 1　SKIP 0/);
+  assert.match(md, /Total: PASS 1 \| FAIL 1 \| SKIP 0/);
   assert.equal(quoteArg('test/**/*.test.mjs'), '"test/**/*.test.mjs"');
 });

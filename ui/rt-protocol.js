@@ -394,15 +394,15 @@
 
   function looksTranslatedMarker(content) {
     var c = content.trim();
-    if (/^room\s*[:：]/i.test(c) && !/^ROOM:/.test(c)) return true;
-    if (/^[^\x00-\x7f]+\s*[:：]/.test(c)) return true;
-    if (/^ROOM\s*：/.test(c)) return true;
+    if (/^room\s*[:\uff1a]/i.test(c) && !/^ROOM:/.test(c)) return true;
+    if (/^[^\x00-\x7f]+\s*[:\uff1a]/.test(c)) return true;
+    if (/^ROOM\s*\uff1a/.test(c)) return true;
     return false;
   }
 
   function scanCandidates(text, protectedSpans) {
     var candidates = [];
-    var candidateRe = /<<([^<>\n]*)>>|<<\s*(?:room|房间)\s*[:：][^\s<>\n]*/gi;
+    var candidateRe = /<<([^<>\n]*)>>|<<\s*(?:room|\u623f\u95f4)\s*[:\uff1a][^\s<>\n]*/gi;
     var match;
 
     while ((match = candidateRe.exec(text)) !== null) {
@@ -435,7 +435,7 @@
     for (var i = 0; i < lines.length; i += 1) {
       var trimmed = lines[i].trim();
       if (!trimmed) continue;
-      var bulletMatch = /^(?:[-*+]|\d+[.)])\s*([A-Za-z0-9_.-]+)\s*[:：]\s*(.+)$/.exec(trimmed);
+      var bulletMatch = /^(?:[-*+]|\d+[.)])\s*([A-Za-z0-9_.-]+)\s*[:\uff1a]\s*(.+)$/.exec(trimmed);
       if (bulletMatch) items.push({ seatId: bulletMatch[1], task: bulletMatch[2].trim() });
       else extraLines.push(trimmed);
     }

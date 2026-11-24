@@ -125,16 +125,16 @@ test('budgetStatus: unlimited / unknown / ok / paused', () => {
   assert.equal(budgetStatus().status, 'unlimited');
 });
 
-test('formatUsage: Chinese summary never prints unknown as 0', () => {
-  assert.match(formatUsage(emptyUsage()), /已知用量：无/);
+test('formatUsage: English summary never prints unknown as 0', () => {
+  assert.match(formatUsage(emptyUsage()), /Known usage: none/);
   let u = accumulate(null, rep('P', 'a1', 1200, 345, 100));
   u = accumulate(u, rep('B', 'a2', null, null));
   const s = formatUsage(u, { maxTokens: 2000 });
-  assert.match(s, /已知用量 1,545 tokens/);
-  assert.match(s, /缓存 100/);
-  assert.match(s, /1 个回合用量未知（席位 B）/);
-  assert.match(s, /剩余 455/);
+  assert.match(s, /Known usage 1,545 tokens/);
+  assert.match(s, /cached 100/);
+  assert.match(s, /1 more turn\(s\) with Unknown usage \(seats: B\)/);
+  assert.match(s, /remaining 455/);
   assert.doesNotMatch(s, /\b0 tokens/);
-  assert.match(formatUsage(u, { maxTokens: 1000 }), /已达上限 1,000/);
-  assert.match(formatUsage(accumulate(null, rep('B', 'x', null, null)), { maxTokens: 10 }), /尚无已知用量可比/);
+  assert.match(formatUsage(u, { maxTokens: 1000 }), /Cap 1,000 reached/);
+  assert.match(formatUsage(accumulate(null, rep('B', 'x', null, null)), { maxTokens: 10 }), /no known usage yet to compare/);
 });

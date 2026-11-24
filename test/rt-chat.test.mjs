@@ -23,35 +23,47 @@ function loadStack() {
 
 const S = loadStack();
 
-test('node --check passes on ui/rt-i18n.js and ui/rt-chat.js; zero forbidden wording and zero innerHTML', async () => {
+test('node --check passes on ui/rt-i18n.js and ui/rt-chat.js; zero CJK, zero forbidden wording, zero innerHTML', async () => {
   for (const file of ['rt-i18n.js', 'rt-chat.js']) {
     const p = path.join(UI, file);
     const r = await spawnClean(process.execPath, ['--check', p], { timeoutMs: 20_000 });
     assert.equal(r.code, 0, `${file}: ${r.stderr}`);
     const src = fs.readFileSync(p, 'utf8');
-    assert.doesNotMatch(src, /只读|无写操作|暂不可用/, `${file} has no forbidden wording`);
+    assert.doesNotMatch(src, /[\u4e00-\u9fff]/, `${file} has zero CJK`);
+    assert.doesNotMatch(src, /read-only|zero writes|\bno writes\b(?! observed)/i, `${file} has no forbidden wording`);
     const codeOnly = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
     assert.doesNotMatch(codeOnly, /\binnerHTML\b|\bouterHTML\b|insertAdjacentHTML/, `${file} has zero innerHTML`);
   }
 });
 
-test('RoomI18n switches cleanly between zh-CN and en', () => {
-  assert.equal(S.RoomI18n.t('zh-CN', 'mode.arena'), '并排对比（Arena）');
+test('RoomI18n provides pure-English strings and normalizes language tags to en', () => {
+  assert.equal(S.RoomI18n.DEFAULT_LANG, 'en');
+  assert.equal(S.RoomI18n.normalizeLang('zh-CN'), 'en');
   assert.equal(S.RoomI18n.t('en', 'mode.arena'), 'Arena Compare');
   assert.equal(S.RoomI18n.t('en', 'inbox.count', { n: 3 }), '3 pending');
+  assert.equal(S.RoomI18n.t('en', 'theme.dark'), 'Dark');
+  assert.equal(S.RoomI18n.t('en', 'theme.light'), 'Light');
 });
 
-test('buildChatModel projects mock fixture into rounds, bubbles, summary, and approval inbox', () => {
+test('buildChatModel projects mock fixture into rounds, 5 brand monograms, summary, and approval inbox', () => {
   const fixture = loadFixture();
   const derived = S.RoomUI.derive(fixture.events);
   const model = S.RoomChat.buildChatModel({ state: fixture.state, room: fixture.room, derived });
 
-  assert.ok(model.rounds.length >= 1);
+  assert.equal(model.rounds.length, 2, 'Round 1 and Round 2 grouped cleanly');
   assert.equal(model.leadSeatId, 'A');
-  assert.ok(model.seats.length === 5);
+  assert.equal(model.seats.length, 5);
 
   const identities = Object.fromEntries(model.seats.map((s) => [s.seatId, s.identity]));
   assert.equal(identities.A.isLead, true);
+  assert.equal(identities.A.family, 'claude');
+  assert.equal(identities.A.monogram, 'CC');
+  assert.equal(identities.B.family, 'codex');
+  assert.equal(identities.B.monogram, 'CX');
+  assert.equal(identities.C.family, 'antigravity');
+  assert.equal(identities.C.monogram, 'AG');
+  assert.equal(identities.D.family, 'gemini');
+  assert.equal(identities.D.monogram, 'GM');
   assert.equal(identities.P.family, 'pi');
   assert.equal(identities.P.monogram, 'PI');
 
@@ -60,7 +72,7 @@ test('buildChatModel projects mock fixture into rounds, bubbles, summary, and ap
   assert.ok(inbox.some((x) => x.kind === 'reconcile' && x.attemptId === 'att-b2'));
   assert.ok(inbox.some((x) => x.kind === 'disclose' && x.id === 'dsc-1'));
 
-  // Arena builds columns for all seats in the latest round
+  // Arena builds columns for all 5 seats in the latest round with speeches
   const arena = S.RoomChat.buildArenaModel(model);
   assert.equal(arena.columns.length, 5);
   assert.ok(arena.availableRounds.includes(arena.roundId));

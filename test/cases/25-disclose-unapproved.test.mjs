@@ -1,4 +1,4 @@
-// Plan §13.1 #25 (仿真 +变异). Mutation: test/mutations/25-no-disclose-gate.test.mjs (ROOM_MUTATE
+// Plan §13.1 #25 (simulation + mutation). Mutation: test/mutations/25-no-disclose-gate.test.mjs (ROOM_MUTATE
 // no-disclose-gate: requests run without the user's approval). The fake spawn records every child
 // the service would start; nothing really runs.
 import { test } from 'node:test';
@@ -16,10 +16,10 @@ export async function scenario({ mutate } = {}) {
     seatId: 'A',
     script: [
       { wait: {} },
-      { disclose: { argv: ['git', 'diff'], reason: '看改动' } },
-      { disclose: { argv: ['git', 'status'], reason: '看状态' } },
-      { verdict: 'disclose', artifact: sha, text: '先看 diff 再定' },
-      { submit: '需要披露后再给结论' },
+      { disclose: { argv: ['git', 'diff'], reason: 'Inspect changes' } },
+      { disclose: { argv: ['git', 'status'], reason: 'Inspect status' } },
+      { verdict: 'disclose', artifact: sha, text: 'Inspect diff before deciding' },
+      { submit: 'Need disclosure before giving a verdict' },
     ],
   });
   await sim.run([A]);
@@ -41,14 +41,14 @@ export function invariants({ sim, A }) {
 }
 
 if (isMain(import.meta.url)) {
-  test('#25 未批准的披露：未执行（批准前零子进程；拒绝后也不执行；只有批准后才在快照副本里执行一次）', async () => {
+  test('#25 Unapproved disclosure: not executed (zero child processes before approval; denied requests never run; runs once inside snapshot copy after approval)', async () => {
     const r = await scenario();
     const { sim, sha, A } = r;
     await sim.check(async () => {
       invariants(r);
       const [d1, d2] = A.replies.slice(0, 2).map((x) => x.reply);
       // denied -> still not executed, and cannot be approved afterwards
-      assert.equal((await sim.admin({ cmd: 'deny-disclose', id: d2.id, reason: '不需要' })).ok, true);
+      assert.equal((await sim.admin({ cmd: 'deny-disclose', id: d2.id, reason: 'Not needed' })).ok, true);
       assert.equal((await sim.admin({ cmd: 'approve-disclose', id: d2.id })).ok, false);
       assert.equal(runs(sim).length, 0, 'a denied request never runs');
       // approved -> exactly one run, inside the snapshot copy
@@ -63,11 +63,11 @@ if (isMain(import.meta.url)) {
     });
   });
 
-  test('#25 快照副本与冻结清单不一致（声明后、复制前文件被改）：记 snapshotStale，批准的披露也不在这份副本里执行', async () => {
+  test('#25 Snapshot copy differs from frozen manifest (edited after declare, before copy): recorded as snapshotStale, and approved disclosure refuses to run in that copy', async () => {
     let simRef = null;
     // Between declareArtifacts hashing the files and snapshot() copying them, the file changes.
     const racingSnapshot = async (manifest, cwd, dest, o) => {
-      simRef.editFile('B', 'src/app.mjs', 'export const x = 99; // 冻结途中被改\n');
+      simRef.editFile('B', 'src/app.mjs', 'export const x = 99; // modified during freeze\n');
       return snapshot(manifest, cwd, dest, o);
     };
     const sim = await createSim({ preset: 'implement-review', seats: IR_SEATS, snapshot: racingSnapshot });
@@ -78,7 +78,7 @@ if (isMain(import.meta.url)) {
       assert.equal(fr.snapshotStale, true, 'the copy does not match the frozen manifest');
       assert.deepEqual(fr.snapshotChanged.map((c) => c.path), ['src/app.mjs']);
       assert.equal(sim.state().artifacts[sha].snapshotStale, true);
-      const A = createScriptedSeat({ seatId: 'A', script: [{ wait: {} }, { disclose: { argv: ['git', 'diff'], reason: '看改动' } }, { submit: `<<ROOM:VERDICT disclose artifact=${sha}>> 先看 diff` }] });
+      const A = createScriptedSeat({ seatId: 'A', script: [{ wait: {} }, { disclose: { argv: ['git', 'diff'], reason: 'Inspect changes' } }, { submit: `<<ROOM:VERDICT disclose artifact=${sha}>> Inspect diff first` }] });
       await sim.run([A]);
       const d = A.replies[0].reply;
       const ap = await sim.admin({ cmd: 'approve-disclose', id: d.id });
