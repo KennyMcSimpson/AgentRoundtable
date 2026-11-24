@@ -139,3 +139,45 @@ test('handleComposerKeyDown ignores IME and plain Enter, submits only on Ctrl/Cm
   assert.equal(S.RoomChat.handleComposerKeyDown({ key: 'Enter', metaKey: true, preventDefault }, { composing: false, locked: true, onSubmit }), false);
   assert.equal(hits, 1);
 });
+
+test('completed directives auto-fold into <details class="rt-claim-folded"> while pending ones stay expanded', () => {
+  const makeNode = (tag) => {
+    const attrs = {};
+    const children = [];
+    return {
+      tagName: tag.toUpperCase(),
+      className: '',
+      children,
+      setAttribute(k, v) { attrs[k] = String(v); },
+      getAttribute(k) { return attrs[k]; },
+      appendChild(c) { children.push(c); return c; },
+      removeChild(c) { const i = children.indexOf(c); if (i >= 0) children.splice(i, 1); },
+      get firstChild() { return children[0] || null; },
+      addEventListener() {},
+    };
+  };
+  const doc = {
+    createElement: makeNode,
+    createTextNode: (t) => ({ nodeType: 3, textContent: String(t) }),
+    createDocumentFragment: () => makeNode('#frag'),
+  };
+  const collect = (n, pred, out = []) => {
+    if (!n) return out;
+    if (pred(n)) out.push(n);
+    for (const c of (n.children || [])) collect(c, pred, out);
+    return out;
+  };
+  const fixture = loadFixture();
+  const derived = S.RoomUI.derive(fixture.events);
+  const model = S.RoomChat.buildChatModel({ state: fixture.state, room: fixture.room, derived });
+  assert.equal(model.taskConfirmed, true, 'fixture task is confirmed');
+
+  const root = makeNode('div');
+  S.RoomChat.renderGroupChat(doc, root, model, { lang: 'en' });
+  const folded = collect(root, (n) => n.tagName === 'DETAILS' && n.className === 'rt-claim-folded');
+  const openClaims = collect(root, (n) => n.tagName === 'DIV' && (n.className === 'rt-claim-card' || n.className === 'rt-assign-card'));
+  // Confirmed Assignment Draft (Seat A) + recorded Verdicts (Seat C & Seat P) auto-fold (3 total);
+  // Seat C's Point on #23 (still has unanswered i2), pending Disclosure (dsc-1), and Seat P's unanswered Point on #25 stay expanded!
+  assert.equal(folded.length, 3, `expected 3 folded completed directives, got ${folded.length}`);
+  assert.equal(openClaims.length, 3, `expected 3 expanded open/pending directives, got ${openClaims.length}`);
+});

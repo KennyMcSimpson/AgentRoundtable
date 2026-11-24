@@ -913,6 +913,9 @@
     return fetchJson('/api/admin', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(function (res) {
       if (res.ok && (!res.body || res.body.ok !== false)) {
         toast('Submitted ' + a.cmd + (res.body && res.body.queued ? ' → ' + res.body.queued : ''), 'ok');
+        if (a.cmd === 'start' || a.cmd === 'interrupt' || a.cmd === 'reverse') {
+          document.querySelectorAll('.rt-controls-drawer, .rt-danger-disclosure').forEach(function (dEl) { dEl.open = false; });
+        }
         setTimeout(poll, 300);
       } else {
         var err = res.body && (res.body.error || res.body.reason || res.body.message);
@@ -980,16 +983,28 @@
   function renderPhaseStepper(phaseVal) {
     var stepper = document.getElementById('hdr-stepper');
     if (!stepper || typeof stepper.querySelectorAll !== 'function') return;
+    var isDiscussionOnly = !!(
+      app.room &&
+      (app.room.preset === 'discussion' || (!app.room.preset && !app.derived.taskDraft && !(app.state && app.state.taskConfirmed) && Object.keys(app.derived.artifacts || {}).length === 0)) &&
+      phaseVal !== 'assign' &&
+      phaseVal !== 'work'
+    );
     var activeIdx = STEPPER_PHASES.indexOf(phaseVal);
     var allDone = phaseVal === 'done' || phaseVal === 'closed';
     var steps = stepper.querySelectorAll('.step');
+    var seps = stepper.querySelectorAll('.step-sep');
     for (var i = 0; i < steps.length; i += 1) {
       var st = steps[i];
       var name = st.getAttribute('data-step');
       var idx = STEPPER_PHASES.indexOf(name);
+      var hideStep = isDiscussionOnly && (name === 'assign' || name === 'work');
       if (st.classList && typeof st.classList.toggle === 'function') {
+        st.classList.toggle('hidden', hideStep);
         st.classList.toggle('is-done', allDone || (activeIdx > -1 && idx < activeIdx));
         st.classList.toggle('is-active', !allDone && activeIdx > -1 && idx === activeIdx);
+      }
+      if (seps[i] && seps[i].classList && typeof seps[i].classList.toggle === 'function') {
+        seps[i].classList.toggle('hidden', hideStep);
       }
     }
   }

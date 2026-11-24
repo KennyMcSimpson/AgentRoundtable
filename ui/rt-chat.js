@@ -524,8 +524,33 @@
       if (r.summaryCard && r.summaryCard.seq !== null) renderedSeqs.add(r.summaryCard.seq);
     });
 
+    var taskConfirmed = Boolean(derived.taskConfirmed || (isObj(state.taskConfirmed) && state.taskConfirmed));
+
+    // Track completed disclosures and resolved points so finished directives auto-fold cleanly.
+    var disclosureStatusByKey = new Map();
+    var disMap = isObj(derived.disclosures) ? derived.disclosures : {};
+    Object.keys(disMap).forEach(function (k) {
+      var q = disMap[k];
+      if (!q || !q.status) return;
+      var argvStr = Array.isArray(q.argv) ? q.argv.join(' ') : String(q.argv || '');
+      disclosureStatusByKey.set(String(q.seatId || '') + '\0' + argvStr, String(q.status));
+    });
+    var pointStatusByKey = new Map();
+    for (var pi = 0; pi < rawItems.length; pi += 1) {
+      var pIt = rawItems[pi];
+      if (!pIt || pIt.kind !== 'point' || pIt.seq === null) continue;
+      var pKey = String(pIt.seatId || '') + '\0' + String(pIt.seq);
+      var prevSt = pointStatusByKey.get(pKey);
+      // If any point on this target is still open/unanswered, keep expanded; otherwise record resolved status.
+      if (pIt.status === 'open' || pIt.status === 'unanswered') pointStatusByKey.set(pKey, 'open');
+      else if (prevSt !== 'open') pointStatusByKey.set(pKey, pIt.status);
+    }
+
     return {
       pendingTask: rounds.length === 0 ? lastTaskText : null,
+      taskConfirmed: taskConfirmed,
+      disclosureStatusByKey: disclosureStatusByKey,
+      pointStatusByKey: pointStatusByKey,
       rounds: rounds,
       latestRoundId: rounds.length ? rounds[rounds.length - 1].roundId : activeRoundId,
       knownSeqSeatIds: knownSeqSeatIds,
@@ -720,12 +745,29 @@
     return el(doc, 'span', { class: 'rt-claim-origin', text: tr(lang, 'chat.claimBadge') });
   }
 
+  function foldedClaim(doc, titleText, statusText, bodyNodes, extraAttrs) {
+    var summaryChildren = [
+      el(doc, 'span', { class: 'rt-folded-title', text: titleText }),
+      statusText ? el(doc, 'span', { class: 'rt-folded-status', text: statusText }) : null,
+    ];
+    var det = el(doc, 'details', Object.assign({ class: 'rt-claim-folded' }, extraAttrs || {}), [
+      el(doc, 'summary', { class: 'rt-folded-summary' }, summaryChildren),
+      el(doc, 'div', { class: 'rt-folded-body' }, bodyNodes),
+    ]);
+    return det;
+  }
+
   function renderSegments(doc, segments, ctx) {
     var frag = doc.createDocumentFragment();
     var lang = ctx.lang || 'en';
     var knownSeqSeatIds = ctx.knownSeqSeatIds || new Map();
     var renderedSeqs = ctx.renderedSeqs || new Set();
     var bubbleQuotes = ctx.quotes || [];
+    var seatId = ctx.seatId || '';
+    var taskConfirmed = !!ctx.taskConfirmed;
+    var hasOfficialVerdict = !!ctx.hasOfficialVerdict;
+    var disclosureStatusByKey = ctx.disclosureStatusByKey || new Map();
+    var pointStatusByKey = ctx.pointStatusByKey || new Map();
 
     for (var i = 0; i < segments.length; i += 1) {
       var seg = segments[i];
@@ -765,45 +807,89 @@
           frag.appendChild(bq);
         })(seg);
       } else if (seg.type === 'point') {
-        frag.appendChild(el(doc, 'div', { class: 'rt-claim-card', 'data-point-seq': String(seg.seq) }, [
-          el(doc, 'div', { class: 'rt-claim-head' }, [
-            el(doc, 'code', { class: 'rt-claim-tag', text: tr(lang, 'chat.claimPoint', { seq: seg.seq }) }),
-            claimBadge(doc, lang),
-          ]),
-          renderMdOrPre(doc, seg.text),
-        ]));
+        var ptStatus = pointStatusByKey.get(String(seatId) + '\0' + String(seg.seq));
+        var ptResolved = ptStatus && ptStatus !== 'open' && ptStatus !== 'unanswered';
+        if (ptResolved) {
+          frag.appendChild(foldedClaim(
+            doc,
+            tr(lang, 'chat.claimPoint', { seq: seg.seq }),
+            statusLabel(lang, ptStatus),
+            [renderMdOrPre(doc, seg.text)],
+            { 'data-point-seq': String(seg.seq) }
+          ));
+        } else {
+          frag.appendChild(el(doc, 'div', { class: 'rt-claim-card', 'data-point-seq': String(seg.seq) }, [
+            el(doc, 'div', { class: 'rt-claim-head' }, [
+              el(doc, 'code', { class: 'rt-claim-tag', text: tr(lang, 'chat.claimPoint', { seq: seg.seq }) }),
+              claimBadge(doc, lang),
+            ]),
+            renderMdOrPre(doc, seg.text),
+          ]));
+        }
       } else if (seg.type === 'assign') {
-        var assignChildren = [
-          el(doc, 'div', { class: 'rt-claim-head' }, [
-            el(doc, 'code', { class: 'rt-claim-tag', text: tr(lang, 'chat.claimAssign') }),
-            claimBadge(doc, lang),
-          ]),
-        ];
+        var assignBody = [];
         if (seg.items.length) {
-          assignChildren.push(el(doc, 'ul', { class: 'rt-assign-list' }, seg.items.map(function (row) {
+          assignBody.push(el(doc, 'ul', { class: 'rt-assign-list' }, seg.items.map(function (row) {
             return el(doc, 'li', null, [el(doc, 'strong', { text: row.seatId }), ': ', row.task]);
           })));
         }
-        if (seg.extraText) assignChildren.push(renderMdOrPre(doc, seg.extraText));
-        frag.appendChild(el(doc, 'div', { class: 'rt-assign-card' }, assignChildren));
+        if (seg.extraText) assignBody.push(renderMdOrPre(doc, seg.extraText));
+        if (taskConfirmed) {
+          frag.appendChild(foldedClaim(doc, tr(lang, 'chat.claimAssign'), 'Confirmed', assignBody));
+        } else {
+          var assignChildren = [
+            el(doc, 'div', { class: 'rt-claim-head' }, [
+              el(doc, 'code', { class: 'rt-claim-tag', text: tr(lang, 'chat.claimAssign') }),
+              claimBadge(doc, lang),
+            ]),
+          ].concat(assignBody);
+          frag.appendChild(el(doc, 'div', { class: 'rt-assign-card' }, assignChildren));
+        }
       } else if (seg.type === 'verdict') {
-        frag.appendChild(el(doc, 'div', { class: 'rt-claim-card', 'data-speech-verdict': seg.verdict }, [
-          el(doc, 'div', { class: 'rt-claim-head' }, [
-            el(doc, 'code', { class: 'rt-claim-tag', text: tr(lang, 'chat.claimVerdict', { verdict: seg.verdict }) }),
+        if (hasOfficialVerdict) {
+          var vBody = [
             seg.artifact ? el(doc, 'code', { class: 'rt-sha', text: shortSha(seg.artifact) }) : null,
-            claimBadge(doc, lang),
-          ]),
-          seg.reason ? renderMdOrPre(doc, seg.reason) : null,
-        ]));
+            seg.reason ? renderMdOrPre(doc, seg.reason) : null,
+          ];
+          frag.appendChild(foldedClaim(
+            doc,
+            tr(lang, 'chat.claimVerdict', { verdict: seg.verdict }),
+            'Recorded',
+            vBody,
+            { 'data-speech-verdict': seg.verdict }
+          ));
+        } else {
+          frag.appendChild(el(doc, 'div', { class: 'rt-claim-card', 'data-speech-verdict': seg.verdict }, [
+            el(doc, 'div', { class: 'rt-claim-head' }, [
+              el(doc, 'code', { class: 'rt-claim-tag', text: tr(lang, 'chat.claimVerdict', { verdict: seg.verdict }) }),
+              seg.artifact ? el(doc, 'code', { class: 'rt-sha', text: shortSha(seg.artifact) }) : null,
+              claimBadge(doc, lang),
+            ]),
+            seg.reason ? renderMdOrPre(doc, seg.reason) : null,
+          ]));
+        }
       } else if (seg.type === 'disclose') {
-        frag.appendChild(el(doc, 'div', { class: 'rt-claim-card' }, [
-          el(doc, 'div', { class: 'rt-claim-head' }, [
-            el(doc, 'code', { class: 'rt-claim-tag', text: tr(lang, 'chat.claimDisclose') }),
-            el(doc, 'code', { class: 'rt-sha', text: seg.argv.join(' ') }),
-            claimBadge(doc, lang),
-          ]),
-          seg.reason ? el(doc, 'div', { class: 'rt-claim-body', text: seg.reason }) : null,
-        ]));
+        var argvStr = seg.argv.join(' ');
+        var dStatus = disclosureStatusByKey.get(String(seatId) + '\0' + argvStr);
+        var dDone = dStatus && dStatus !== 'requested';
+        if (dDone) {
+          var dLabel = dStatus.charAt(0).toUpperCase() + dStatus.slice(1);
+          frag.appendChild(foldedClaim(
+            doc,
+            tr(lang, 'chat.claimDisclose') + ' · ' + argvStr,
+            dLabel,
+            [seg.reason ? el(doc, 'div', { class: 'rt-claim-body', text: seg.reason }) : null]
+          ));
+        } else {
+          frag.appendChild(el(doc, 'div', { class: 'rt-claim-card' }, [
+            el(doc, 'div', { class: 'rt-claim-head' }, [
+              el(doc, 'code', { class: 'rt-claim-tag', text: tr(lang, 'chat.claimDisclose') }),
+              el(doc, 'code', { class: 'rt-sha', text: argvStr }),
+              claimBadge(doc, lang),
+            ]),
+            seg.reason ? el(doc, 'div', { class: 'rt-claim-body', text: seg.reason }) : null,
+          ]));
+        }
       } else if (seg.type === 'misquoted') {
         frag.appendChild(el(doc, 'div', { class: 'rt-claim-card', 'data-misquoted-seq': String(seg.seq) }, [
           el(doc, 'div', { class: 'rt-claim-head' }, [
@@ -901,6 +987,11 @@
     var bodyInner = el(doc, 'div', { class: 'rt-bubble-body' + (isCollapsed ? ' is-collapsed' : '') });
     bodyInner.appendChild(renderSegments(doc, bubble.segments, {
       lang: lang,
+      seatId: bubble.seatId || '',
+      taskConfirmed: !!chatModel.taskConfirmed,
+      hasOfficialVerdict: !!(bubble.verdicts && bubble.verdicts.length),
+      disclosureStatusByKey: chatModel.disclosureStatusByKey,
+      pointStatusByKey: chatModel.pointStatusByKey,
       knownSeqSeatIds: chatModel.knownSeqSeatIds,
       renderedSeqs: chatModel.renderedSeqs,
       quotes: bubble.quotes,
@@ -1184,6 +1275,11 @@
           ]);
           msgCard.appendChild(renderSegments(doc, b.segments, {
             lang: lang,
+            seatId: b.seatId || '',
+            taskConfirmed: !!chatModel.taskConfirmed,
+            hasOfficialVerdict: !!(b.verdicts && b.verdicts.length),
+            disclosureStatusByKey: chatModel.disclosureStatusByKey,
+            pointStatusByKey: chatModel.pointStatusByKey,
             knownSeqSeatIds: chatModel.knownSeqSeatIds,
             renderedSeqs: chatModel.renderedSeqs,
             quotes: b.quotes,
