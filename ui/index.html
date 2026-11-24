@@ -25,7 +25,7 @@
       <span class="step-sep" aria-hidden="true"></span>
       <span class="step" data-step="summary"><span class="step-dot"></span>Summary</span>
     </div>
-    <span id="hdr-phase" class="hdr-item"><b class="badge">Unknown</b></span>
+    <span id="hdr-phase" class="hdr-item hidden"><b class="badge">Unknown</b></span>
     <span id="hdr-round" class="hdr-chip tabular">R<b>—</b> · E<b>—</b></span>
     <span id="hdr-turn" class="hdr-chip">Turn <b>—</b></span>
     <span id="hdr-seq" class="hdr-chip tabular">#<b>0</b></span>
@@ -47,12 +47,16 @@
       <button data-view="task" type="button" class="tab">Task Draft</button>
       <button data-view="items" type="button" class="tab">Items</button>
       <button data-view="verdicts" type="button" class="tab">Verdicts</button>
-      <div class="nav-group-label">Operations</div>
-      <button data-view="receipts" type="button" class="tab">Receipts</button>
-      <button data-view="usage" type="button" class="tab">Usage</button>
-      <button data-view="recovery" type="button" class="tab">Recovery</button>
-      <button data-view="merge" type="button" class="tab">Merge</button>
-      <button data-view="contract" type="button" class="tab">Contract</button>
+      <details class="nav-more">
+        <summary class="nav-more-summary">Diagnostics</summary>
+        <div class="nav-more-list">
+          <button data-view="receipts" type="button" class="tab">Receipts</button>
+          <button data-view="usage" type="button" class="tab">Usage</button>
+          <button data-view="recovery" type="button" class="tab">Recovery</button>
+          <button data-view="merge" type="button" class="tab">Merge</button>
+          <button data-view="contract" type="button" class="tab">Contract</button>
+        </div>
+      </details>
     </nav>
 
     <div class="sidebar-section">
@@ -85,10 +89,9 @@
         </div>
       </div>
 
-      <details id="task-card-wrap" class="task-card-collapsible" open>
+      <details id="task-card-wrap" class="task-card-collapsible">
         <summary class="task-card-summary">
-          <span class="task-card-title">Room Objective</span>
-          <span class="badge user">authority=user</span>
+          <span class="task-card-title">Objective</span>
           <span id="task-card-preview" class="task-card-preview"></span>
         </summary>
         <div id="task-box" class="task-box"></div>
@@ -102,30 +105,33 @@
 
       <div class="rt-composer">
         <form id="form-say" class="rt-composer-card" data-action="say">
-          <textarea id="composer-input" name="text" class="rt-composer-input" rows="2" placeholder="Queue a message for seats (Ctrl+Enter to send, Enter for newline)…" required></textarea>
+          <textarea id="composer-input" name="text" class="rt-composer-input" rows="2" placeholder="Message seats (Ctrl+Enter to send)…" required></textarea>
           <div class="rt-composer-bar">
-            <span class="rt-composer-hint">Ctrl+Enter to send · queued for next turn boundary</span>
-            <button id="btn-composer-send" type="submit" class="primary"><span class="btn-label">Send</span> <code>say</code></button>
+            <span class="rt-composer-hint">Ctrl+Enter to send · queued for next turn</span>
+            <button id="btn-composer-send" type="submit" class="primary"><span class="btn-label">Send</span></button>
           </div>
         </form>
-        <div class="rt-controls-strip">
-          <form id="form-stream-start" class="rt-start-form" data-action="start">
-            <span class="rt-controls-label">Next Round</span>
-            <div id="stream-order-chips" class="rt-order-chips"></div>
-            <input id="stream-order-input" name="order" type="text" placeholder="Seat order, e.g. A,B,A (optional)">
-            <button id="btn-composer-start" type="submit" class="btn-small"><span class="btn-label">Start Round</span> <code>start</code></button>
-          </form>
-          <details class="rt-danger-disclosure">
-            <summary>Interrupt &amp; Reverse</summary>
-            <div class="rt-danger-body">
-              <form id="form-interrupt" class="inline-form" data-action="interrupt">
-                <input id="interrupt-input" name="text" type="text" placeholder="Interrupt note (optional)">
-                <button id="btn-composer-interrupt" type="submit" class="danger btn-small"><span class="btn-label">Interrupt &amp; Reopen</span> <code>interrupt</code></button>
-              </form>
-              <button type="button" class="danger btn-small" data-action="reverse">Reverse Roles <code>reverse</code></button>
-            </div>
-          </details>
-        </div>
+        <details class="rt-controls-drawer">
+          <summary class="rt-controls-summary">Round Controls</summary>
+          <div class="rt-controls-strip">
+            <form id="form-stream-start" class="rt-start-form" data-action="start">
+              <span class="rt-controls-label">Next Round</span>
+              <div id="stream-order-chips" class="rt-order-chips"></div>
+              <input id="stream-order-input" name="order" type="text" placeholder="Seat order, e.g. A,B,A (optional)">
+              <button id="btn-composer-start" type="submit" class="btn-small"><span class="btn-label">Start Round</span></button>
+            </form>
+            <details class="rt-danger-disclosure">
+              <summary>Interrupt &amp; Reverse</summary>
+              <div class="rt-danger-body">
+                <form id="form-interrupt" class="inline-form" data-action="interrupt">
+                  <input id="interrupt-input" name="text" type="text" placeholder="Interrupt note (optional)">
+                  <button id="btn-composer-interrupt" type="submit" class="danger btn-small"><span class="btn-label">Interrupt &amp; Reopen</span></button>
+                </form>
+                <button type="button" class="danger btn-small" data-action="reverse">Reverse Roles</button>
+              </div>
+            </details>
+          </div>
+        </details>
       </div>
     </section>
 

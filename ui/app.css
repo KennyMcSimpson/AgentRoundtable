@@ -255,11 +255,10 @@ h3 { margin: 22px 0 10px; font-size: 12px; font-weight: 600; text-transform: upp
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px;
+  padding: 3px 8px;
   border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  box-shadow: var(--shadow-xs);
+  border: none;
+  background: transparent;
 }
 .phase-stepper .step {
   display: inline-flex;
@@ -309,13 +308,13 @@ h3 { margin: 22px 0 10px; font-size: 12px; font-weight: 600; text-transform: upp
 .hdr-chip {
   font-size: 12px;
   color: var(--muted);
-  padding: 3px 8px;
-  border-radius: 6px;
-  background: var(--surface-subtle);
-  border: 1px solid var(--border);
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: transparent;
+  border: none;
   white-space: nowrap;
 }
-.hdr-chip b { color: var(--ink); font-weight: 600; }
+.hdr-chip b { color: var(--ink-2); font-weight: 600; }
 
 .theme-btn {
   display: inline-flex;
@@ -447,6 +446,44 @@ h3 { margin: 22px 0 10px; font-size: 12px; font-weight: 600; text-transform: upp
   background: var(--accent);
   color: var(--accent-fg);
   border-color: transparent;
+}
+
+.nav-more {
+  margin-top: 6px;
+}
+.nav-more-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  border-radius: 6px;
+}
+.nav-more-summary::-webkit-details-marker { display: none; }
+.nav-more-summary::before {
+  content: "▸";
+  font-size: 10px;
+  transition: transform 0.14s ease;
+}
+.nav-more[open] > .nav-more-summary::before {
+  transform: rotate(90deg);
+}
+.nav-more-summary:hover {
+  color: var(--ink);
+  background: var(--surface-subtle);
+}
+.nav-more-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 2px;
 }
 
 /* Sidebar Live Seat Roster */
@@ -655,24 +692,23 @@ main {
 
 /* ---- Collapsible Task Objective Card ---- */
 .task-card-collapsible {
-  margin-bottom: 14px;
+  margin-bottom: 10px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface);
-  box-shadow: var(--shadow-xs);
+  border-radius: 8px;
+  background: transparent;
   overflow: hidden;
 }
 .task-card-summary {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 9px 14px;
+  padding: 7px 12px;
   cursor: pointer;
   user-select: none;
   list-style: none;
   font-size: 12.5px;
   font-weight: 600;
-  color: var(--ink);
+  color: var(--ink-2);
 }
 .task-card-summary::-webkit-details-marker { display: none; }
 .task-card-summary::before {

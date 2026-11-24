@@ -279,7 +279,7 @@ test('H6: renderGroupChat renders summary-turn verdicts and unattached verdicts 
   const container = doc.createElement('div');
   sandbox.RoomChat.renderGroupChat(doc, container, model, { lang: 'en' });
   const text = container.textContent;
-  assert.match(text, /Official verdict: reject/);
+  assert.match(text, /Verdict: reject/);
   assert.match(text, /tainted/);
 });
 
