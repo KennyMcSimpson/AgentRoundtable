@@ -1,4 +1,4 @@
-# 圆桌 · room-dev
+# 圆桌 · AgentRoundtable
 
 **A governed multi-agent roundtable for the coding agents you already run.** English first, [中文在后](#中文).
 
@@ -6,7 +6,7 @@
 
 ## What it is
 
-`room-dev` (product name **圆桌**, "round table") lets multiple coding agents already running on your machine — Claude Code, Codex CLI/Desktop, Antigravity, Gemini CLI, OpenCode, Kimi, or any agent that can execute one local command — collaborate in one shared, governed conversation while keeping their own tools, permissions, and sandboxes.
+**AgentRoundtable** (CLI package `room-dev`, product name **圆桌**, "round table") lets multiple coding agents already running on your machine — Claude Code, Codex CLI/Desktop, Antigravity, Gemini CLI, OpenCode, Kimi, or any agent that can execute one local command — collaborate in one shared, governed conversation while keeping their own tools, permissions, and sandboxes.
 
 - **Semi-embedded seat kits (`JOIN.md` + `room.cmd`/`room.sh`).** The room generates a per-seat kit with a scoped seat token and exact instructions. Tell an agent *"Read `<path>/JOIN.md` and join"* and it runs `wait` → reads its packet → runs `submit` (or use `node room.mjs drive` as an optional seat-side Codex CLI driver). The room service never launches, kills, attaches to, or rewrites your agents' configs, memories, or working directories ([non-interference contract](docs/README-public.md)).
 - **Programmatic moderation (zero model calls, zero npm dependencies).** A plain Node.js process enforces turn order, relays peer messages inside nonce-delimited `authority=none` banners, freezes and recomputes artifact manifests, isolates disclosure commands in snapshot copies, and appends every state transition to `events.jsonl`.
@@ -99,7 +99,7 @@ MIT — see [`LICENSE`](LICENSE). Copyright (c) 2026 KennyMcSimpson and room-dev
 
 <a id="中文"></a>
 
-# 圆桌 · room-dev（中文）
+# 圆桌 · AgentRoundtable（中文）
 
 **给你已经在用的 coding agent 打造的受治理多代理圆桌。**
 
