@@ -1,4 +1,4 @@
-// lib/ must run on its own: hosts such as PI-Desktop vendor only room.mjs, lib/** and ui/ (no dist/,
+// lib/ must run on its own: embedding hosts vendor only room.mjs, lib/** and ui/ (no dist/,
 // no test/), so no module under lib/ may import from dist/, test/, sim/, contract/ or evidence/.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

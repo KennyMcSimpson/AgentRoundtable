@@ -1,0 +1,1 @@
+Voided attempt notice: your previous attempt {{voidedAttemptId}} has been voided. Its packet and anything you wrote in that turn are not in the public record; do not quote or continue them. This packet is the fresh attempt {{attemptId}}.

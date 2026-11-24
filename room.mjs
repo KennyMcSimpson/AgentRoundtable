@@ -29,7 +29,7 @@
 //   Admin (run by the user; --dir <roomDir> or --id <roomId> under the default rooms root):
 //     node room.mjs admin init      --id <id> [--dir <roomDir>] [--preset ...] [--wall s] [--work-wall s] [--max-work n] [--max-tokens n] [--packet-max-bytes n]
 //     node room.mjs admin add-seat  --dir <roomDir> --seat <id> --role executor|reviewer|lead|participant --cwd <dir>
-//                                   [--agent claude-code|codex-desktop|codex-cli|opencode|gemini-cli|kimi|dsh|pi-user|generic]
+//                                   [--agent claude-code|codex-desktop|codex-cli|antigravity|opencode|gemini-cli|kimi|dsh|pi-user|generic]
 //                                   [--wait background|turn_over|manual] [--tier discussion|readonly|workspace|full]
 //                                   [--reviews A,B] [--hosted pi:discussion|pi:exec|pi:reviewer]
 //                                   [--surface cli|tool:<model-visible tool name>]
@@ -57,15 +57,20 @@
 //     node room.mjs admin log|show  --dir <roomDir>
 //   Audit (run by the user):
 //     node room.mjs audit --seat <seatDir> [--packet <id>] [--verbose]
+//   Drive (optional seat-side client driver, run by the user outside the room service; never loaded by `serve`):
+//     node room.mjs drive --seat <seatDir> [--runner codex-cli] --model <id> --effort <level> [--codex-exe <path>] [--max-turns <n>]
 //   Lobby (what the desktop app 圆桌.exe runs in its utility process, app/main.mjs; or by hand):
-//     node room.mjs lobby [--port N] [--open]
+//     node room.mjs lobby [--port N] [--rooms-root <dir>] [--resume] [--lang zh-CN|en] [--open]
 //                         (loopback page on 127.0.0.1:N, default 7380 or a free port when that is busy, for
 //                          creating rooms and seats, opening a room's UI and giving it a task. Prints its URL
 //                          once, with the per-launch lobby token in the fragment; --open opens it in the
 //                          default browser. Runs until Ctrl+C or the console window closes, or, inside the
 //                          app, until the app sends {t:'quit'}; then stops every room it opened)
+//   Daemon (persistent multi-room host + lobby + SSE + live room auto-resume):
+//     node room.mjs daemon [--port N] [--rooms-root <dir>] [--no-resume] [--lang zh-CN|en] [--open]
+//     node room.mjs daemon status [--rooms-root <dir>]
 import fs from 'node:fs';
-import { parseArgs } from './lib/common.mjs';
+import { parseArgs, defaultRoomsRoot } from './lib/common.mjs';
 
 const SEAT_CMDS = new Set(['wait', 'submit', 'status', 'leave', 'artifacts', 'point', 'quote', 'mark', 'verdict', 'disclose', 'pass', 'misquoted', 'assign']);
 
@@ -82,17 +87,37 @@ function readKeyFromStdin() {
   return (text.split(/\r?\n/).find((l) => l.trim()) || '').trim();
 }
 
-// `lobby`: the page the desktop app shows (or a browser, for the developer path). The lobby token is
-// printed only inside the one URL line; the app parses that line and never logs the token.
-async function runLobby(a) {
+// `lobby` / `daemon`: the page the desktop app shows (or a browser, for the developer path). The
+// lobby token is printed only inside the one URL line; the app parses that line and never logs it.
+async function runLobby(a, { daemon = false } = {}) {
   let port;
   if (a.port !== undefined) {
     port = Number(a.port);
     if (a.port === true || !Number.isInteger(port) || port < 0 || port > 65535) { process.stderr.write('ERROR --port 要是 0 到 65535 的整数\n'); return 9; }
   }
+  const roomsRoot = typeof a['rooms-root'] === 'string' && a['rooms-root'].trim() ? a['rooms-root'].trim() : undefined;
+  let defaultLang;
+  if (a.lang !== undefined) {
+    const { SUPPORTED_LANGS } = await import('./lib/i18n.mjs');
+    if (typeof a.lang !== 'string' || !SUPPORTED_LANGS.includes(a.lang.trim())) {
+      process.stderr.write(`ERROR --lang 仅支持：${SUPPORTED_LANGS.join(', ')}\n`);
+      return 9;
+    }
+    defaultLang = a.lang.trim();
+  }
   const { startLobby } = await import('./lib/lobby.mjs');
   const log = (l) => process.stdout.write(`${l}\n`);
-  const lobby = await startLobby({ ...(port !== undefined ? { port } : {}), log, openBrowser: a.open === true });
+  const resume = daemon ? a['no-resume'] !== true : a.resume === true;
+  const lobby = await startLobby({
+    ...(port !== undefined ? { port } : {}),
+    ...(roomsRoot ? { roomsRoot } : {}),
+    ...(defaultLang ? { defaultLang } : {}),
+    mode: daemon ? 'daemon' : 'lobby',
+    resume,
+    persistRegistry: daemon || resume,
+    log,
+    openBrowser: a.open === true,
+  });
   log(`圆桌启动器：${lobby.url}`);
   // Under the desktop app (utilityProcess: process.parentPort) the app window shows the page, so the
   // browser / console-window hint would only mislead its log.
@@ -100,6 +125,9 @@ async function runLobby(a) {
     ? '正在默认浏览器里打开上面的地址；没打开就把它复制到浏览器。关闭本窗口或按 Ctrl+C 即退出，并停止从这里打开的房间。'
     : '在浏览器里打开上面的地址。关闭本窗口或按 Ctrl+C 即退出，并停止从这里打开的房间。');
   log(`房间目录：${lobby.roomsRoot}`);
+  if (daemon) {
+    log(`常驻守护模式：pid=${process.pid} port=${lobby.port} resumed=${lobby.resumed.length}${lobby.resumed.length ? ` (${lobby.resumed.join(',')})` : ''}`);
+  }
   // Closing the console window arrives as SIGHUP, Ctrl+Break as SIGBREAK (the same set as serve()).
   const signals = ['SIGINT', 'SIGTERM', 'SIGHUP', ...(process.platform === 'win32' ? ['SIGBREAK'] : [])];
   await new Promise((resolve) => { for (const sig of signals) process.once(sig, resolve); });
@@ -107,6 +135,26 @@ async function runLobby(a) {
   await lobby.close();
   log('已退出。');
   return 0;
+}
+
+async function runDaemon(a) {
+  const sub = a._[0];
+  if (sub === 'status') {
+    const roomsRoot = typeof a['rooms-root'] === 'string' && a['rooms-root'].trim() ? a['rooms-root'].trim() : defaultRoomsRoot();
+    const { readDaemonStatus } = await import('./lib/daemon-store.mjs');
+    const st = readDaemonStatus(roomsRoot);
+    if (st.running && st.meta) {
+      process.stdout.write(`DAEMON_RUNNING pid=${st.meta.pid} port=${st.meta.port} roomsRoot=${st.meta.roomsRoot || roomsRoot} startedAt=${st.meta.startedAt || ''}\n`);
+      return 0;
+    }
+    process.stdout.write(`DAEMON_STOPPED roomsRoot=${roomsRoot}\n`);
+    return 1;
+  }
+  if (sub && sub !== 'start') {
+    process.stderr.write(`ERROR unknown daemon subcommand ${sub}; expected start or status\n`);
+    return 9;
+  }
+  return runLobby(a, { daemon: true });
 }
 
 function report(e) {
@@ -142,9 +190,14 @@ async function main() {
       await cmdAudit(args);
       return 0;
     }
+    case 'drive': {
+      const { cmdDrive } = await import('./lib/driver.mjs');
+      return cmdDrive(args);
+    }
     case 'lobby': return runLobby(args);
+    case 'daemon': return runDaemon(args);
     default:
-      process.stdout.write(`usage: node room.mjs <${[...SEAT_CMDS].join('|')}|serve|admin|audit|lobby> ... (see header of room.mjs)\n`);
+      process.stdout.write(`usage: node room.mjs <${[...SEAT_CMDS].join('|')}|serve|admin|audit|drive|lobby|daemon> ... (see header of room.mjs)\n`);
       return cmd ? 9 : 0;
   }
 }

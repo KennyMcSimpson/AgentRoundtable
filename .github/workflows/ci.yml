@@ -9,7 +9,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [windows-latest, ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -19,7 +19,7 @@ jobs:
       - name: Syntax check
         shell: bash
         run: |
-          find lib sim contract dist ui room.mjs -name '*.mjs' -o -name '*.js' | while read -r f; do node --check "$f"; done
+          find lib app sim contract dist ui room.mjs -type f \( -name '*.mjs' -o -name '*.js' -o -name '*.cjs' \) | while read -r f; do node --check "$f"; done
       - name: Unit, case and mutation tests
         shell: bash
         env:

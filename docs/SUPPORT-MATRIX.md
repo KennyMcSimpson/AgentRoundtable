@@ -72,6 +72,14 @@ room-dev 可以被别的程序在进程内嵌入（`lib/api.mjs`，见 `docs/INT
 
 两行都不是「已验证」：本表的已验证要求在真实 agent 上跑过，而这里只有纯 Node 下的测试，没有真实宿主应用，也没有真实模型参与。审计列对通道席位恒为「未审计」：通道自己的工具不受 room-dev 权限档位约束，所以首版只开讨论档。
 
+## 2026-11 更新说明（v0.2.0）
+
+自 2026-10 初始探针报告以来，补充记录以下边界变化（沿用同一诚信口径：单元测试通过不等于真实 agent 已验证）：
+
+- **脚本席位与自动化门禁（已验证）**：`test/e2e.mjs`（79/79）及全量 `node --test "test/**/*.test.mjs"` 覆盖审核回合 `unknownCommands` 标 `tainted`、`spawnClean` `AbortSignal` 与 POSIX 进程组清理、`cmdWait` 增量读取与 `fs.watch`、POSIX `0o600` 令牌权限、中英双语模板（`--lang zh-CN|en`）、SSE 实时流（`/api/stream`、`/lobby/api/stream`）、多房间守护进程自动恢复与损坏注册表备份恢复、群聊/Arena 投影、伪造标记保护与零 `innerHTML` XSS 防护。
+- **真实浏览器 UI 烟测（已验证）**：在真实浏览器中对统一房间界面完成群聊气泡渲染、Arena 并排对比切换、`#seq` 引文跳转高亮、顶部审批箱、实时中英语言切换、SSE 实时连接以及伪造标记/XSS 负向对照检验。
+- **真实多代理联调（部分进展，治理链路仍标未验证）**：在作者 Windows 11 机器上已进行 Antigravity / Claude Code / Codex CLI 真实多席位讨论回合联调；但以下各项**仍为未验证**：① 真实独立 agent 上的完整治理链路（产物冻结、复算 stale、授权审方 verdict、快照披露、条目表全闭环）；② Claude Code 多小时后台等待空闲成本与唤醒稳定性；③ Codex Desktop 交互线程唤醒推送；④ 真实外部 agent 跨守护进程重启自动续接；⑤ macOS / Linux 实机及干净 Windows 机器上的独立运行。
+
 ## 列的含义
 
 | 列 | 含义 |

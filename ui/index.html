@@ -6,11 +6,12 @@
 <meta name="referrer" content="no-referrer">
 <title>圆桌房间</title>
 <link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="rt-chat.css">
 </head>
 <body>
 <header class="topbar">
   <div class="topbar-main">
-    <span class="brand">圆桌房间</span>
+    <span id="hdr-brand" class="brand">圆桌房间</span>
     <span id="hdr-room" class="hdr-item">房间 <b>未知</b></span>
     <span id="hdr-phase" class="hdr-item">阶段 <b class="badge">未知</b></span>
     <span id="hdr-round" class="hdr-item">轮 <b>未知</b> · epoch <b>未知</b></span>
@@ -18,10 +19,13 @@
     <span id="hdr-seq" class="hdr-item">seq <b>0</b></span>
   </div>
   <div class="topbar-side">
-    <span id="hdr-conn" class="conn conn-unknown" title="轮询 /api/state 与 /api/events，每 2 秒一次">连接：未知</span>
+    <button id="btn-lang" type="button" class="lang-btn" title="Switch UI language to English">EN</button>
+    <span id="hdr-conn" class="conn conn-unknown" title="优先 SSE 实时推送，断线自动回退轮询">连接：未知</span>
     <span id="hdr-token" class="tok tok-missing">令牌：缺失</span>
   </div>
 </header>
+
+<div id="approval-inbox" class="rt-inbox hidden" aria-live="polite"></div>
 
 <div id="token-bar" class="notice warn hidden">
   URL 片段里没有 admin 令牌（形如 <code>#&lt;token&gt;</code>）。没有令牌只能看，不能动作。
@@ -48,18 +52,38 @@
 <main id="main">
 
 <section id="view-stream" class="view active" data-view="stream">
-  <div class="actions">
-    <form id="form-say" class="inline-form" data-action="say">
-      <input name="text" type="text" placeholder="给席位的新消息（默认下一轮边界进入包）" required>
-      <button type="submit">排队新消息 <code>say</code></button>
-    </form>
-    <form id="form-interrupt" class="inline-form" data-action="interrupt">
-      <input name="text" type="text" placeholder="打断说明（可空）">
-      <button type="submit" class="danger">打断并重开 <code>interrupt</code></button>
-    </form>
+  <div class="rt-mode-bar">
+    <div id="stream-mode-tabs" class="rt-mode-tabs" role="tablist">
+      <button type="button" class="rt-mode-btn is-active" data-stream-mode="chat">群聊视图</button>
+      <button type="button" class="rt-mode-btn" data-stream-mode="arena">并排对比（Arena）</button>
+      <button type="button" class="rt-mode-btn" data-stream-mode="log">原始事件流</button>
+    </div>
   </div>
-  <div id="task-box" class="card task-box"></div>
-  <ol id="stream" class="stream"></ol>
+  <div id="chat-view"></div>
+  <div id="arena-view" class="hidden"></div>
+  <div id="raw-log-wrap" class="hidden">
+    <div id="task-box" class="card task-box"></div>
+    <ol id="stream" class="stream"></ol>
+  </div>
+  <div class="rt-composer">
+    <form id="form-say" class="rt-composer-row" data-action="say">
+      <textarea id="composer-input" name="text" class="rt-composer-input" rows="2" placeholder="输入消息排队（Ctrl+Enter 发送；普通 Enter 换行）" required></textarea>
+      <div class="rt-composer-btns">
+        <button id="btn-composer-send" type="submit" class="primary"><span class="btn-label">发送消息</span> <code>say</code></button>
+      </div>
+    </form>
+    <div class="actions">
+      <form id="form-interrupt" class="inline-form" data-action="interrupt">
+        <input id="interrupt-input" name="text" type="text" placeholder="打断说明（可空）">
+        <button id="btn-composer-interrupt" type="submit" class="danger"><span class="btn-label">打断并重开</span> <code>interrupt</code></button>
+      </form>
+      <form id="form-stream-start" class="inline-form" data-action="start">
+        <input id="stream-order-input" name="order" type="text" placeholder="发言顺序，如 A,B,A（可空默认）">
+        <button id="btn-composer-start" type="submit"><span class="btn-label">开新轮</span> <code>start</code></button>
+      </form>
+      <div id="stream-order-chips" class="rt-order-chips"></div>
+    </div>
+  </div>
 </section>
 
 <section id="view-seats" class="view" data-view="seats">
@@ -144,6 +168,10 @@
 </main>
 
 <div id="toasts" class="toasts" aria-live="polite"></div>
+<script src="rt-i18n.js"></script>
+<script src="rt-protocol.js"></script>
+<script src="rt-markdown.js"></script>
+<script src="rt-chat.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

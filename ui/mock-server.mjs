@@ -145,6 +145,7 @@ export function createMockServer({ port = 0, fixturePath = DEFAULT_FIXTURE, fixt
   const data = fixture || loadFixture(fixturePath);
   const adminToken = token || randomHex(16);
   const received = [];
+  const sseClients = new Set();
   let boundPort = port;
 
   const server = http.createServer(async (req, res) => {
@@ -165,6 +166,44 @@ export function createMockServer({ port = 0, fixturePath = DEFAULT_FIXTURE, fixt
       if (!Number.isInteger(since) || since < 0) { send(res, 400, { ok: false, error: 'BAD_SINCE' }); return; }
       const events = data.events.filter((e) => typeof e.seq === 'number' && e.seq > since);
       send(res, 200, { events, lastSeq: data.events.length ? data.events[data.events.length - 1].seq : 0 });
+      return;
+    }
+    if (url.pathname === '/api/stream') {
+      if (req.method !== 'GET') { send(res, 405, { ok: false, error: 'METHOD' }); return; }
+      for (const k of url.searchParams.keys()) {
+        if (k !== 'since') { send(res, 400, { ok: false, error: 'BAD_QUERY' }); return; }
+      }
+      const parseNonNeg = (v) => {
+        if (v === null || v === undefined || v === '') return 0;
+        if (!/^\d+$/.test(String(v).trim())) return null;
+        const n = Number(String(v).trim());
+        return Number.isSafeInteger(n) && n >= 0 ? n : null;
+      };
+      const qSince = parseNonNeg(url.searchParams.get('since'));
+      const hSince = parseNonNeg(req.headers['last-event-id']);
+      if (qSince === null || hSince === null) { send(res, 400, { ok: false, error: 'BAD_SINCE' }); return; }
+      if (sseClients.size >= 32) { send(res, 503, { ok: false, error: 'TOO_MANY_STREAMS' }); return; }
+      const since = Math.max(qSince, hSince);
+      res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': 'text/event-stream; charset=utf-8', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
+      const lastSeq = data.events.length ? data.events[data.events.length - 1].seq : 0;
+      res.write(`event: snapshot\ndata: ${JSON.stringify({ state: data.state, room: data.room, lastSeq })}\n\n`);
+      for (const ev of data.events) {
+        if (typeof ev.seq === 'number' && ev.seq > since) res.write(`id: ${ev.seq}\nevent: room_event\ndata: ${JSON.stringify(ev)}\n\n`);
+      }
+      let closed = false;
+      const ping = setInterval(() => { if (!closed && !res.writableEnded) try { res.write(': ping\n\n'); } catch { cleanup(); } }, 20_000);
+      if (ping.unref) ping.unref();
+      const cleanup = () => {
+        if (closed) return;
+        closed = true;
+        clearInterval(ping);
+        sseClients.delete(cleanup);
+        if (!res.writableEnded) try { res.end(); } catch {}
+      };
+      sseClients.add(cleanup);
+      req.on('close', cleanup);
+      res.on('close', cleanup);
+      res.on('error', cleanup);
       return;
     }
     if (url.pathname === '/api/admin') {
@@ -199,7 +238,7 @@ export function createMockServer({ port = 0, fixturePath = DEFAULT_FIXTURE, fixt
         url: `http://127.0.0.1:${boundPort}/`,
         token: adminToken,
         received,
-        close: () => new Promise((r) => { server.closeAllConnections?.(); server.close(() => r()); }),
+        close: () => new Promise((r) => { for (const c of [...sseClients]) c(); server.closeAllConnections?.(); server.close(() => r()); }),
       });
     });
   });

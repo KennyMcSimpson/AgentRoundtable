@@ -3,30 +3,25 @@
 //
 //   node dist/public-scan.mjs [--all] [--deny-file <file>]
 //
-// Scans the files git tracks here (without docs/internal/** and dist/out/**, which the public export
-// leaves out; --all scans them too) and prints one line per hit, `<path>:<line> [<rule>] <excerpt>`,
+// Scans the files git tracks here (without docs/internal/**, dist/out/** and
+// integrations/pi-desktop-plugin/**, which the public export leaves out; --all scans them too)
+// and prints one line per hit, `<path>:<line> [<rule>] <excerpt>`,
 // then `PUBLIC_SCAN_OK files=<n> text=<n> binary=<n>` (exit 0) or `PUBLIC_SCAN_FAIL hits=<n> ...`
 // (exit 1). File paths are scanned as well as file contents. dist/export-public.mjs runs the same
 // rules over its output and fails on any hit. Nothing is ever rewritten: a hit is fixed by hand.
 //
-// Rules (RULES below):
-//   personal-dir   an absolute path to one of the author's working folders (drive E: plus the folder
-//                  names of this machine), and the same path in Claude's encoded project-folder form;
-//                  also when '-' follows the folder name (a sibling folder, an encoded subfolder)
-//   user-home      a Windows or POSIX home folder of the author's account
-//   first-name     the author's bare first name in any case (the public name is the handle in LICENSE,
-//                  first name and surname joined, which does not match)
-//   machine-path   install locations specific to the author's machine
+// Built-in generic rules (RULES below):
 //   email          any e-mail address except documentation domains and no-reply addresses
 //   session-id     a UUID: Codex thread ids and Claude session ids are UUIDs. Test fixtures use
 //                  synthetic ids with an all-zero group (01a0f000-0000-7000-...), which are allowed
-//   internal-name  names of the author's private tooling
 //   key            key, token and private-key shapes (the shapes lib/export.mjs scans room exports
 //                  for, plus a few more); a match that says fake/test/sim/example/dummy/canary is allowed
-//   deny           literals from a deny file kept outside the repository (--deny-file, else the
-//                  ROOM_PUBLIC_SCAN_DENY variable): one per line, '#' starts a comment, matched
-//                  case-insensitively. Private names that must not appear in public source even as
-//                  scan patterns (for example the author's memory-entry names) belong there.
+//   deny           entries from a maintainer deny file kept outside the repository (--deny-file,
+//                  else the ROOM_PUBLIC_SCAN_DENY variable): one per line, '#' starts a comment.
+//                  Lines of the form `/pattern/flags` are compiled as regular expressions; other
+//                  lines are matched as case-insensitive literals. Machine-specific paths, local
+//                  usernames and private tooling names belong in that external file, never in
+//                  public source.
 //
 // Every regex below is written so that its own source text does not match it; this file passes its
 // own scan. Test files that plant hits build them by concatenation at run time for the same reason.
@@ -50,30 +45,44 @@ const EXTRA_KEYS = [
 const EMAIL_OK = /@(?:example\.(?:com|org|net)|[a-z0-9-]+\.example|users\.noreply\.github\.com|noreply\.github\.com|anthropic\.com)$|^noreply@|^git@github\.com$/i;
 
 export const RULES = [
-  // A folder name followed by '-' is caught too: a sibling folder (<name>-old) or, in the encoded
-  // form, a subfolder (E--<name>-sub). pi-local precedes pi, so it still matches as itself.
-  { id: 'personal-dir', re: /\bE:[\\/]+(?:codex|pi-local|pi|room-probe|room-dev)(?!\w)/gi },
-  { id: 'personal-dir', re: /\bE--(?:codex|pi-local|pi|room-probe|room-dev)(?!\w)/gi },
-  { id: 'user-home', re: /\b(?:Users|home)[\\/]+ken{2}y(?![a-z])/gi },
-  // Any case, and before '-', '_' or a digit; not the public handle, where a surname follows directly.
-  { id: 'first-name', re: /(?<![a-z])ken{2}y(?![a-z])/gi },
-  { id: 'machine-path', re: /\b[A-Z]:[\\/]+nodejs(?![\w-])/gi },
   { id: 'email', re: /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}\b/g, allow: (m) => EMAIL_OK.test(m) },
   { id: 'session-id', re: /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, allow: (m) => /-0000-/.test(m) },
-  { id: 'internal-name', re: /ken{2}y[-_ ]?ecosystem|\bKEN{2}Y_[A-Z]|主[控]|\.codex[\\/]+visualizations/gi },
   ...SCAN_PATTERNS.filter((p) => KEY_KINDS.has(p.kind)).map((p) => ({ id: 'key', kind: p.kind, re: new RegExp(p.re.source, p.re.flags), allow: (m) => FAKE_MARK.test(m) })),
   ...EXTRA_KEYS.map((re) => ({ id: 'key', re, allow: (m) => FAKE_MARK.test(m) })),
 ];
 
-// Paths a public copy leaves out: internal records and build output.
+// Paths a public copy leaves out: internal records, build output, and retired host-specific plugins.
 export function isPublicPath(rel) {
   const r = rel.replace(/\\/g, '/');
-  return !(r === 'docs/internal' || r.startsWith('docs/internal/') || r === 'dist/out' || r.startsWith('dist/out/'));
+  return !(
+    r === 'docs/internal' || r.startsWith('docs/internal/')
+    || r === 'dist/out' || r.startsWith('dist/out/')
+    || r === 'integrations/pi-desktop-plugin' || r.startsWith('integrations/pi-desktop-plugin/')
+  );
 }
 
 export function readDenyFile(file) {
   if (!file) return [];
-  return fs.readFileSync(file, 'utf8').split(/\r?\n/).map((l) => l.replace(/#.*$/, '').trim()).filter(Boolean);
+  const entries = [];
+  for (const raw of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    // Allow `/regex/flags` lines (without stripping `#` inside the regex); for literals, strip trailing `# ...`.
+    if (/^\/.+\/[gimsuy]*$/.test(line)) {
+      entries.push(line);
+      continue;
+    }
+    const lit = raw.replace(/#.*$/, '').trim();
+    if (lit) entries.push(lit);
+  }
+  return entries;
+}
+
+function compileDenyEntry(entry) {
+  const m = /^\/(.+)\/([gimsuy]*)$/.exec(entry);
+  if (!m) return { kind: 'literal', needle: entry.toLowerCase(), length: entry.length };
+  const flags = m[2].includes('g') ? m[2] : `${m[2]}g`;
+  return { kind: 'regex', re: new RegExp(m[1], flags) };
 }
 
 function lineOf(text, index) {
@@ -88,7 +97,7 @@ function excerpt(rule, m) {
   return one.length > 90 ? `${one.slice(0, 90)}…` : one;
 }
 
-// [{rule, line, match}] for one text. `deny`: extra literals (case-insensitive).
+// [{rule, line, match}] for one text. `deny`: extra literals (case-insensitive) or `/pattern/flags` regexes.
 export function scanText(text, { deny = [] } = {}) {
   const hits = [];
   for (const r of RULES) {
@@ -101,8 +110,17 @@ export function scanText(text, { deny = [] } = {}) {
     }
   }
   const lower = text.toLowerCase();
-  for (const d of deny) {
-    const needle = d.toLowerCase();
+  for (const raw of deny) {
+    const d = compileDenyEntry(raw);
+    if (d.kind === 'regex') {
+      let m;
+      while ((m = d.re.exec(text)) !== null) {
+        if (m[0].length === 0) { d.re.lastIndex++; continue; }
+        hits.push({ rule: 'deny', line: lineOf(text, m.index), match: excerpt('deny', m[0]) });
+      }
+      continue;
+    }
+    const needle = d.needle;
     for (let i = lower.indexOf(needle); i !== -1; i = lower.indexOf(needle, i + needle.length)) {
       hits.push({ rule: 'deny', line: lineOf(text, i), match: excerpt('deny', text.slice(i, i + d.length)) });
     }

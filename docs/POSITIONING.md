@@ -13,11 +13,9 @@ native-log auditors, event-sourced agent buses), and found the nearest multi-age
 some control of the agents. So the contribution is a *novel combination*, and it is not yet
 evaluated: no experiment has shown that it catches failures manual forwarding misses. Nine
 mechanisms are incremental (prior art named below, plus the narrow step we add); seven are
-not innovations at all. The PI-Desktop integration is a plugin because upstream withdrew its core
-agent-to-agent stack (ADR 0165) and keeps cross-session coordination in plugins; that is a scope
-decision by upstream, not a verdict on novelty.
+not innovations at all.
 
-> 证据口径：「已验证」只取 [`SUPPORT-MATRIX.md`](SUPPORT-MATRIX.md) 里的格子；单元测试与脚本席位端到端不算真实 agent 上的证据。先例来自 2026-10 的一次公开资料扫描，描述取自各项目当时的 README、文档或论文摘要，扫描范围有限；拿不准时一律按「更不新」归类。上游 PI-Desktop 的内容读自公开仓库的提交 `10e824ee12f8`（PI-Desktop）与 `c35605a5ed31`（pi-desktop-plugins）。
+> 证据口径：「已验证」只取 [`SUPPORT-MATRIX.md`](SUPPORT-MATRIX.md) 里的格子；单元测试与脚本席位端到端不算真实 agent 上的证据。先例来自 2026-10 的一次公开资料扫描，描述取自各项目当时的 README、文档或论文摘要，扫描范围有限；拿不准时一律按「更不新」归类。
 
 ---
 
@@ -51,7 +49,7 @@ decision by upstream, not a verdict on novelty.
 
 - 「检测型控制 vs 预防型控制」是安全与审计框架的教科书区分（NIST SP 800-53 的控制类型、COSO），本身不新。
 - [skettleson/clauditor](https://github.com/skettleson/clauditor) 已经在不改动 Claude Code、Codex、Cursor 的前提下，事后读它们的原生日志、对照声明角色给出判定。这是「不控制的检测」，但对象是单个会话，不是一个协调协议。
-- 最接近的多 agent 协调系统都拿了一部分控制权：[DhanushSantosh/AgentComms](https://github.com/DhanushSantosh/AgentComms) 做受治理、事件溯源的通信，也把送达证据和 agent 自报分开记，但它强制租约，并由自己起、自己提示 Claude Code / Codex / OpenCode；[ExaDev/agent-comms](https://github.com/ExaDev/agent-comms) 会自动改写宿主的配置文件（MCP 服务器、插件清单、钩子）；PI-Desktop 上游被撤回的 A2A 栈（ADR 0147 / 0162 / 0164）是宿主核心里的 broker，从宿主内部控制会话。
+- 最接近的多 agent 协调系统都拿了一部分控制权：[DhanushSantosh/AgentComms](https://github.com/DhanushSantosh/AgentComms) 做受治理、事件溯源的通信，也把送达证据和 agent 自报分开记，但它强制租约，并由自己起、自己提示 Claude Code / Codex / OpenCode；[ExaDev/agent-comms](https://github.com/ExaDev/agent-comms) 会自动改写宿主的配置文件（MCP 服务器、插件清单、钩子）；部分桌面宿主内置的 A2A broker 则直接从宿主核心内部控制各个会话。
 - 托管式圆桌（如 [bcraavi/ai_roundtable](https://github.com/bcraavi/ai_roundtable)）和 [Claude Code agent teams](https://code.claude.com/docs/en/agent-teams) 都由编排方启动 agent。
 
 扫描里没有找到哪个系统把「协调层不拥有任何 agent，所以只检测、只存证」立为治理异构、由用户自己持有的 agent 的设计规则。
@@ -60,7 +58,7 @@ decision by upstream, not a verdict on novelty.
 
 - 没有对照实验表明它能抓到人工转发漏掉的失败。计划中的对照（同一组任务，人工转发 vs 房间）还没跑。
 - 治理层（冻结、stale、verdict、披露、条目表）在真实 agent 上全部未验证，只在单元测试和脚本席位端到端里跑过（SUPPORT-MATRIX）。
-- 写操作审计依赖厂商未公开、会变的日志格式；被拒绝的写不留记录；不认识的命令只列出、不染色；Claude Code 一侧的审计未验证。
+- 写操作审计依赖厂商未公开、会变的日志格式；被拒绝的写不留记录；非白名单未知命令在审查回合中按 fail-closed 口径记 `tainted`（仍受日志解析覆盖度限制）；Claude Code 一侧的审计未验证。
 - 席位令牌放在房间目录里，同机的其他席位读得到（DESIGN §7.1），所以顺序约束只防糊涂的 agent，不防恶意的 agent。
 
 这条框架要从「主张」变成「贡献」，最少需要：上面那个对照实验的结果，加上至少一种真实 agent 跑通 stale 与审计染色的记录。
@@ -85,7 +83,7 @@ decision by upstream, not a verdict on novelty.
 
 ### 3.3 来源横幅
 
-- **先例：** Hines 等，*Defending Against Indirect Prompt Injection Attacks With Spotlighting*（Microsoft，arXiv:2403.14720）的随机定界与 datamarking；microsoft/azure-devops-mcp PR #1062 把 spotlighting 用在工具返回内容上；PI-Desktop 的 `pi.session-orchestrator` 插件已经声明「收到的消息明确标为另一会话的通信，不是人的输入，也不是新的用户授权」；上游 ADR 0164 把同伴消息作为带标签的收件箱前置到下一轮。
+- **先例：** Hines 等，*Defending Against Indirect Prompt Injection Attacks With Spotlighting*（Microsoft，arXiv:2403.14720）的随机定界与 datamarking；microsoft/azure-devops-mcp PR #1062 把 spotlighting 用在工具返回内容上；部分多会话编排插件会把同伴消息明确标为非用户输入并作为带标签的收件箱前置到下一轮。
 - **我们多的一步：** 在对等 coding agent 之间默认开启、不可关闭；转发正文里的 `[ROOM:` / `[/ROOM:` 被转义并计入清单；声明在 `wait` 头里重复一次以防宿主截断；模板经过 lint，不能含活标记。它是标签，不是防御。
 - **证据：** 模型是否遵守只记录、不保证：一个 agent、三个回合。
 
@@ -97,7 +95,7 @@ decision by upstream, not a verdict on novelty.
 
 ### 3.5 产物哈希冻结与 verdict 时复算
 
-- **先例：** GitHub 分支保护的「新提交推送时作废过期批准」与「须批准最近一次可审推送」；Gerrit 把投票绑在 patch set 上；`pi.session-orchestrator` 的 `accept` 按确切的一次交付记审查元数据；上游 ADR 0138 点出了并发委托中的「过期前提」问题。
+- **先例：** GitHub 分支保护的「新提交推送时作废过期批准」与「须批准最近一次可审推送」；Gerrit 把投票绑在 patch set 上；部分多会话编排器按确切交付记录审查元数据以防并发委托中的「过期前提」问题。
 - **我们多的一步：** 搬到房间不拥有的目录里：不调用执行者仓库的 git，逐文件哈希声明的路径；复算绑定在审方交 verdict 的那一刻；「接受过期」只覆盖用户看到的那份改动清单，之后再变得到 `STALE_CHANGED_SINCE_ACCEPT`。只检测：审方交卷之后的改动不在这一检查范围内。
 - **证据：** 只在脚本席位上跑过。
 
@@ -119,7 +117,7 @@ decision by upstream, not a verdict on novelty.
 
 ### 3.9 待回应条目表与取代通知
 
-- **先例：** GitHub「合并前须解决所有讨论」；Gerrit 的未解决评论数；ai_roundtable 的分歧分析与同意矩阵；*Cited but Not Verified*（arXiv:2605.06635）对引用归属的核查；上游 ADR 0138 指出被推翻的共享前提必须传到同伴那里。
+- **先例：** GitHub「合并前须解决所有讨论」；Gerrit 的未解决评论数；ai_roundtable 的分歧分析与同意矩阵；*Cited but Not Verified*（arXiv:2605.06635）对引用归属的核查；分布式多会话协同中「被推翻的共享前提必须传回同伴」的常规约束。
 - **我们多的一步：** 条目由程序从 `room point`（或整段发言）派生，只有汇总主力能标注，未标注的全部列为「未回应」；汇总有版本，新版本给每个席位的下一个包注入取代通知；引文按哈希逐字核对被引的 seq，被取代的 seq 核对为 false。agent 是否真的看到并照取代通知行事，未在真实 agent 上跑过。
 
 ---
@@ -130,7 +128,7 @@ decision by upstream, not a verdict on novelty.
 
 | 项 | 为什么不算 | 先例 |
 |---|---|---|
-| 程序主持的发言顺序、只追加事件日志、纯 reducer、首个终态胜出的 attempt 去重、epoch、崩溃后由用户选择重放或作废 | 都是多 agent 框架与分布式系统的标准做法 | AutoGen / AG2 GroupChat 的 `round_robin` / `manual` / 自定义发言选择；ai_roundtable 的固定轮次；AgentComms 的签名链式事件史；上游 ADR 0147 的终态不再迁移；事件溯源、幂等键、fencing token；`pi.session-orchestrator` 的 `idempotencyKey` |
+| 程序主持的发言顺序、只追加事件日志、纯 reducer、首个终态胜出的 attempt 去重、epoch、崩溃后由用户选择重放或作废 | 都是多 agent 框架与分布式系统的标准做法 | AutoGen / AG2 GroupChat 的 `round_robin` / `manual` / 自定义发言选择；ai_roundtable 的固定轮次；AgentComms 的签名链式事件史；状态机终态不回退、事件溯源、幂等键与 fencing token |
 | 单向监管：唯一主力、执行者不能当主力、审查图无环且每个产物唯一审方、只有该审方的 verdict 有效、执行者不能互投 pass | 是职责分离 / maker-checker | 四眼原则；CODEOWNERS 与「最近一次推送须由推送者以外的人批准」；AWS Well-Architected Agentic AI Lens AGENTSEC07-BP03；kachowtowmater/terminal-board PR #11；Claude Code agent teams 的只读审方队友。对嵌入式席位，「审方只读」是声明后审计，不是强制 |
 | 审方健康提示（n≥14 且 0 次 reject 时警告） | 带假设基率的简单二项启发式 | minware「Rubber-Stamp Reviews」反模式、Code Climate Velocity 的审查指标、对 AI 审查者的同类讨论 |
 | 跨厂商席位同一协议 | 已有很多工具和标准做到；我们只有 `codex exec` 一行跑通 | Zed Agent Client Protocol、Google A2A、MCP、AgentComms、ExaDev/agent-comms、ai_roundtable、clauditor / sessionscope 的双格式审计 |
@@ -144,44 +142,14 @@ decision by upstream, not a verdict on novelty.
 
 ---
 
-## 5. 和 PI-Desktop 上游现有能力的关系
+## 5. 对外怎么说
 
-### 5.1 上游已经有什么
-
-| 上游能力 | 它做什么 | 和 room-dev 的关系 |
-|---|---|---|
-| `Task` / `TaskWait` / `TaskList` / `TaskStop`（ADR 0062 / 0089） | 父会话并发派出有界的子任务，报告回到父会话；内置子 agent 默认只读 | 委托，不是对等对话；上游认为这就够了 |
-| 示例插件 `examples/plugins/roundtable` | 每个角色是一个独立 `Task`，父 agent 收集报告并综合；委托之间不互相发消息；可把上一轮报告放进下一轮的 brief | 由模型（父 agent）主持、只有 PI 自己的子 agent、没有 verdict / 冻结 / 审计。room-dev 是程序主持、席位是房间不拥有的异构 agent |
-| `pi.session-orchestrator` 插件（`SessionTask`，高风险权限 `desktop.control`） | 按真实 `sessionId` 派生、发送、查询、取消 PI 会话；宿主拥有投递、队列、执行状态与完成通知；收到的消息标为「另一会话的通信，不是用户授权」；`accept` 按确切交付记审查；`idempotencyKey` | 是「带控制的治理」：宿主拥有会话。它已经覆盖了来源标签、按交付绑定的审查记录、幂等重试这些点（见 §3.3、§3.5、§4）。room-dev 多的是：发言顺序、产物冻结与 stale、单向监管与快照披露、条目表、原生日志审计，以及对 PI 之外 agent 的支持 |
-| 已撤回的 A2A / Peer 栈（ADR 0138 → 0140 → 0147 → 0162 → 0164，由 ADR 0165 于 2026-09-05 撤回） | 曾经在宿主核心里有 broker、`a2a.*` RPC、持久化表、`A2A` 工具，让会话之间互相发消息 | 已删除：协议升到 v11 不再宣告 `a2a`，数据库 v13 删表 |
-
-### 5.2 为什么是插件，不是核心
-
-room-dev 的 PI-Desktop 集成（[`integrations/pi-desktop-plugin`](../integrations/pi-desktop-plugin/README.zh-CN.md)）只用上游公开的插件接口，不改宿主、不改核心。理由都和上游的产品方向有关：
-
-1. **上游刚把这类东西从核心里拿掉。** ADR 0165 撤回 A2A 栈的理由是：同伴与跨会话通道摆在已有的 `Task*` 约定旁边，加了一个应用其他部分不用的协议能力，模型也容易漏用或误用；并发委托经父会话汇报已经足够。往核心里放一个受治理的房间，等于在一个月后把同一类协议能力和持久化状态加回去。
-2. **上游保留的跨会话协调本身就在插件里。** `pi.session-orchestrator` 是插件市场里的插件，经宿主审阅过的 `session/collaboration/*` 接口工作。房间走同一条路，是顺着上游现有的分层。
-3. **房间的设计规则本来就不要求住在宿主核心里。** 「不控制 agent」意味着房间不需要宿主的会话所有权；它服务的主要对象（Codex、Claude Code 等）也不归 PI-Desktop 核心管。插件只需要后台服务、Agent 工具、面板和 `agent.complete` 这些公开接口。
-4. **代价是公开记录过的。** 插件拿不到把 PI 对话唤醒的接口（`session/collaboration/send` 要求处在一次进行中的 Agent 工具调用之内，后台服务满足不了），所以 PI 席位由用户唤醒；工具只能在 Agent 模式用。插件目前只在一个仿照上游插件 SDK 的假宿主上测过，没装进真实的 PI-Desktop。
-
-### 5.3 这不是对新颖性的判断
-
-「做成插件、不进核心」和「创新点够不够」是两个独立的问题：
-
-- ADR 0165 撤回的是一条消息通道，它从没评估过冻结、stale、披露、原生日志审计这类治理机制。即使机制再新，往核心里加一个刚被删掉的协议能力，面对的也是同一个范围决定。
-- 反过来，插件的门槛也不是新颖性。按插件仓库的 CONTRIBUTING，高风险能力需要数据流矩阵、负向路径测试和两位维护者批准；后台服务、执行进程和写文件都算高风险。这些是工程与安全门槛。
-- 新颖性要单独看（§2–§4）：真正新的只有「不控制 agent 的治理」这条组合，而它还没评估过。这是创新的实际状况，和放在核心还是插件无关。
-
----
-
-## 6. 对外怎么说
-
-下面两段可以直接用在上游 issue 里，每句都有 SUPPORT-MATRIX 的格子撑着。
+下面两段概括项目边界，每句都与 [`SUPPORT-MATRIX.md`](SUPPORT-MATRIX.md) 的实测口径对齐。
 
 **English**
 
-> room-dev is a local, Windows-first room in which coding agents you already run (Codex, Claude Code, or any agent that can run one local command) take turns in one conversation; the room never launches, configures or attaches to them. Because it owns none of the agents, its governance detects and records instead of enforcing: relayed text carries source labels, a reviewer's verdict is checked against hashes of the frozen artifacts and marked stale if they changed, and an agent's own native log can be read to confirm that a packet arrived. So far this is verified end to end with scripted seats and with one real seat kind, a Codex thread started with `codex exec` in the same package context as the room; Claude Code as an independent seat, and the governance layer on any real agent, are not verified yet. The PI-Desktop side is a plugin built only on the public plugin APIs, tested against a fake host so far, and it asks for no core change.
+> Roundtable (`room-dev`) is a local, zero-dependency governed room in which coding agents you already run (Codex, Claude Code, Antigravity, or any agent that can run one local command) take turns in one conversation; the room never launches, configures, or attaches to them. Because it owns none of the agents, its governance detects and records instead of enforcing: relayed text carries nonce-delimited source banners, a reviewer's verdict is checked against hashes of frozen artifacts and marked stale if they changed, and an agent's own native log can be read to confirm packet delivery and flag observed writes or non-allowlisted commands (`tainted`). Automated tests and scripted end-to-end runs cover the full governance layer, SSE daemon, and group-chat/Arena UI, while independent real-agent governance cycles remain explicitly tracked in `docs/SUPPORT-MATRIX.md`.
 
 **中文**
 
-> room-dev 是一个本地、Windows 优先的「房间」，让你已经在用的 coding agent（Codex、Claude Code，或任何能跑一条本地命令的 agent）在同一个对话里按顺序发言；房间不启动、不配置、不附着任何 agent。因为它不拥有任何 agent，治理只做检测和记录、不做强制：转发的内容带来源标签，审方的结论要对照冻结产物的哈希复核、产物变了就标为过期，还可以只读 agent 自己的原生日志确认包已送达。目前端到端验证过的只有脚本席位和一种真实席位，即与房间同一包上下文、由 `codex exec` 起的 Codex 线程；Claude Code 独立入席、以及治理层在任何真实 agent 上的运行，都还没有验证。PI-Desktop 一侧是只用公开插件接口写的插件，目前只在假宿主上测过，不要求改动核心。
+> 圆桌（`room-dev`）是一个本地、零依赖的受治理多代理房间，让你已经在用的 coding agent（Codex、Claude Code、Antigravity，或任何能跑一条本地命令的 agent）在同一个对话里按顺序发言；房间不启动、不配置、不附着任何 agent。因为它不拥有任何 agent，治理只做检测和存证、不做强控：转发的内容带随机定界来源横幅，审方的结论要对照冻结产物的哈希复核、产物变了就标为 stale，还可以只读 agent 自己的原生日志确认包已送达并标注审查回合里观测到的写操作或非白名单命令（`tainted`）。自动化测试与脚本席位端到端已覆盖完整治理层、SSE 守护进程与群聊/Arena 界面，真实 agent 的实测边界持续如实记录在 `docs/SUPPORT-MATRIX.md`。

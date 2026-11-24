@@ -17,7 +17,49 @@
   var HOSTED_PI = 'hosted-pi'; // pseudo-agent in the seat form: the room's built-in Pi
   var ID_RE = /^[A-Za-z0-9_-]+$/;
 
-  var app = { token: '', meta: null, rooms: [], view: 'rooms', taskOpen: {}, pollTimer: null, seq: 0 };
+  var app = { token: '', meta: null, rooms: [], view: 'rooms', taskOpen: {}, pollTimer: null, seq: 0, lang: 'zh-CN', sse: null, sseConnected: false, daemon: null };
+  function tUi(key, params, fallback) {
+    if (typeof globalThis !== 'undefined' && globalThis.RoomI18n && typeof globalThis.RoomI18n.t === 'function') {
+      return globalThis.RoomI18n.t(app.lang, key, params);
+    }
+    return fallback !== undefined ? fallback : key;
+  }
+  function updateDaemonBadge(daemon) {
+    if (daemon) app.daemon = daemon;
+    var el = $('hdr-daemon');
+    if (!el) return;
+    if (!app.daemon || app.daemon.mode !== 'daemon') { el.classList.add('hidden'); return; }
+    var text = tUi('hdr.daemon.badge', null, '守护进程模式') + ' · ' + tUi('hdr.daemon.open', { n: app.daemon.openRooms || 0 }, '运行中房间：' + (app.daemon.openRooms || 0));
+    if (app.daemon.resumedRooms && app.daemon.resumedRooms.length) {
+      text += ' · ' + tUi('hdr.daemon.resumed', { n: app.daemon.resumedRooms.length }, '');
+    }
+    el.textContent = text;
+    el.classList.remove('hidden');
+  }
+  function applyLobbyLang() {
+    if (document.documentElement) document.documentElement.lang = app.lang;
+    var lobbyTitle = tUi('brand.lobby', null, '圆桌启动器');
+    document.title = lobbyTitle;
+    var brand = $('hdr-brand');
+    if (brand) brand.textContent = lobbyTitle;
+    var langBtn = $('btn-lang');
+    if (langBtn) {
+      langBtn.textContent = tUi('lang.toggle', null, app.lang === 'en' ? '中文' : 'EN');
+      langBtn.title = tUi('lang.toggleTitle', null, '');
+    }
+    var tabs = document.querySelectorAll('#tabs .tab');
+    for (var i = 0; i < tabs.length; i += 1) {
+      var v = tabs[i].getAttribute('data-view');
+      tabs[i].textContent = tUi('lobby.tab.' + v, null, tabs[i].textContent);
+    }
+    if ($('btn-refresh')) $('btn-refresh').textContent = tUi('lobby.refresh', null, '刷新');
+    if ($('btn-goto-create')) $('btn-goto-create').textContent = tUi('lobby.createBtn', null, '新建房间');
+    if ($('lbl-room-lang')) $('lbl-room-lang').textContent = tUi('lobby.langLabel', null, '房间协议语言');
+    if ($('room-lang-hint')) $('room-lang-hint').textContent = tUi('lobby.langHint', null, '');
+    setConn(app.sseConnected || true);
+    setToken(app.token);
+    updateDaemonBadge(app.daemon);
+  }
   // Inside the desktop app (app/preload.cjs) window.roomApp offers a native folder picker and the
   // system clipboard; in a browser it is absent and the page behaves as before.
   var APP = (typeof window !== 'undefined' && window.roomApp && window.roomApp.isApp === true) ? window.roomApp : null;
@@ -81,13 +123,14 @@
 
   function setConn(ok) {
     var el = $('hdr-conn');
-    el.textContent = ok ? '连接：正常' : '连接：断开（启动器窗口关了？）';
+    if (ok) el.textContent = app.sseConnected ? tUi('lobby.conn.sse', null, '连接：实时（SSE）') : tUi('lobby.conn.ok', null, '连接：正常');
+    else el.textContent = tUi('lobby.conn.bad', null, '连接：断开（启动器窗口关了？）');
     el.className = 'conn ' + (ok ? 'conn-ok' : 'conn-bad');
   }
   function setToken(t) {
     app.token = t || '';
     var el = $('hdr-token');
-    el.textContent = app.token ? '令牌：已载入' : '令牌：缺失';
+    el.textContent = app.token ? tUi('lobby.tok.ok', null, '令牌：已载入') : tUi('lobby.tok.missing', null, '令牌：缺失');
     el.className = 'tok ' + (app.token ? 'tok-ok' : 'tok-missing');
     $('token-bar').classList.toggle('hidden', !!app.token);
     var btns = document.querySelectorAll('[data-needs-token]');
@@ -232,12 +275,10 @@
       // open is idempotent: it starts the room's service when needed and otherwise answers `already`.
       postJson('/lobby/api/open', { id: room.id }).then(function (o) {
         if (o.status !== 200 || !o.json.ok) throw new Error('打开失败：' + errText(o));
-        return postJson('/lobby/api/task', { id: room.id, text: text });
-      }).then(function (t) {
-        if (t.status !== 200 || !t.json.ok) throw new Error('任务没交上：' + errText(t));
-        return postJson('/lobby/api/start', ids.length ? { id: room.id, order: ids } : { id: room.id });
+        var payload = ids.length ? { id: room.id, task: text, order: ids } : { id: room.id, task: text };
+        return postJson('/lobby/api/start', payload);
       }).then(function (s) {
-        if (s.status !== 200 || !s.json.ok) throw new Error('任务已交，但没能开始：' + errText(s));
+        if (s.status !== 200 || !s.json.ok) throw new Error('没能开始：' + errText(s));
         status.textContent = '已开始第 ' + (s.json.roundId || '?') + ' 轮。';
         toast('房间 ' + room.id + ' 已开始。到房间界面里看发言流。', 'ok');
         app.taskOpen[room.id] = false;
@@ -260,6 +301,7 @@
     var head = h('h4', {}, [
       room.id,
       h('span', { class: 'badge info', text: room.preset || '无预设' }),
+      room.lang ? h('span', { class: 'badge', text: room.lang === 'en' ? 'EN' : '中文' }) : null,
       h('span', { class: 'badge', text: '阶段 ' + (room.closed ? PHASE_LABEL.closed : (PHASE_LABEL[room.phase] || room.phase)) }),
       h('span', { class: 'badge', text: '第 ' + room.roundId + ' 轮' }),
       running,
@@ -308,13 +350,38 @@
     }
     app.rooms.forEach(function (r) { box.appendChild(roomCard(r)); });
   }
+  function applyRoomsSnapshot(payload) {
+    if (!payload) return;
+    if (payload.daemon) updateDaemonBadge(payload.daemon);
+    var list = payload.rooms || [];
+    var key = JSON.stringify(list);
+    app.rooms = list;
+    if (key !== app.lastRooms) { app.lastRooms = key; renderRooms(false); }
+  }
   function refreshRooms() {
     return getJson('/lobby/api/rooms').then(function (res) {
       if (res.status !== 200 || !res.json.ok) { toast('读房间列表失败：' + errText(res), 'bad'); return; }
-      var key = JSON.stringify(res.json.rooms);
-      app.rooms = res.json.rooms || [];
-      if (key !== app.lastRooms) { app.lastRooms = key; renderRooms(false); }
+      applyRoomsSnapshot(res.json);
     }, function () { /* connection badge already says so */ });
+  }
+  function connectLobbySse() {
+    if (typeof EventSource === 'undefined' || app.sse) return;
+    var es;
+    try { es = new EventSource('/lobby/api/stream'); } catch (e) { return; }
+    app.sse = es;
+    es.addEventListener('open', function () { app.sseConnected = true; setConn(true); });
+    es.addEventListener('rooms', function (ev) {
+      try {
+        app.sseConnected = true;
+        setConn(true);
+        applyRoomsSnapshot(JSON.parse(ev.data));
+      } catch (e) { /* ignore */ }
+    });
+    es.addEventListener('error', function () {
+      app.sseConnected = false;
+      if (es.readyState === 2) app.sse = null;
+      setConn(false);
+    });
   }
 
   // ---- create form ----
@@ -368,7 +435,8 @@
       var mine = ++app.seq;
       row._seq = mine;
       if (!isAbsPath(v)) { cwdNote.textContent = v ? '要写完整的绝对路径（例如 C:\\Users\\你\\project）。' : ''; return; }
-      getJson('/lobby/api/folder?path=' + encodeURIComponent(v)).then(function (res) {
+      if (!app.token) return;
+      postJson('/lobby/api/folder', { path: v }).then(function (res) {
         if (row._seq !== mine || res.status !== 200 || !res.json.ok) return;
         create.checked = !res.json.exists;
         cwdNote.textContent = !res.json.exists ? '这个文件夹还不存在；保持勾选，启动器替你新建一个空文件夹。'
@@ -494,7 +562,8 @@
     var btn = $('btn-create');
     btn.disabled = true;
     $('create-status').textContent = '正在建房……';
-    postJson('/lobby/api/create', { id: id, preset: $('room-preset').value, seats: seats }).then(function (res) {
+    var roomLang = $('room-lang') ? $('room-lang').value : 'zh-CN';
+    postJson('/lobby/api/create', { id: id, preset: $('room-preset').value, lang: roomLang, seats: seats }).then(function (res) {
       btn.disabled = !app.token;
       if (res.status !== 200 || !res.json.ok) {
         $('create-status').textContent = '';
@@ -543,9 +612,18 @@
     for (var i = 0; i < tabs.length; i++) tabs[i].addEventListener('click', function (ev) { showView(ev.currentTarget.getAttribute('data-view')); });
     $('btn-refresh').addEventListener('click', function () { app.lastRooms = ''; refreshRooms(); });
     $('btn-goto-create').addEventListener('click', function () { showView('create'); });
+    if ($('btn-lang')) {
+      $('btn-lang').addEventListener('click', function () {
+        app.lang = app.lang === 'en' ? 'zh-CN' : 'en';
+        applyLobbyLang();
+        renderRooms(true);
+      });
+    }
     getJson('/lobby/api/meta').then(function (res) {
       if (res.status !== 200 || !res.json.ok) { toast('读启动器信息失败：' + errText(res), 'bad'); return; }
       app.meta = res.json;
+      if (res.json.defaultLang && $('room-lang')) $('room-lang').value = res.json.defaultLang;
+      if (res.json.daemon) updateDaemonBadge(res.json.daemon);
       $('hdr-root').lastChild.textContent = res.json.roomsRoot;
       $('room-dir-hint').textContent = res.json.roomsRoot;
       fillSelect($('room-preset'), res.json.presets.map(function (p) { return { id: p.id, label: p.id }; }), 'implement-review');
@@ -566,8 +644,9 @@
       $('btn-template').addEventListener('click', defaultSeats);
       $('form-create').addEventListener('submit', submitCreate);
       refreshRooms();
+      connectLobbySse();
     }, function () { toast('连不上启动器。', 'bad'); });
-    app.pollTimer = setInterval(function () { if (app.view === 'rooms' && !document.hidden) refreshRooms(); }, 3000);
+    app.pollTimer = setInterval(function () { if (app.view === 'rooms' && !document.hidden && !app.sseConnected) refreshRooms(); }, 3000);
   }
 
   if (typeof document !== 'undefined') {

@@ -618,6 +618,7 @@ const JOIN_SNAPSHOTS = {
   'claude-code': '68865bb6c778db074f0bb175efe885daf5f4018a372c564b5edce37db18b1129',
   'codex-desktop': '9e713a1e093e9c1ce4b5382aae888f7978bc8314ef49842fa467cad46560496b',
   'codex-cli': 'ece8d940c300767afd94b7eef9de3f466b0b18dcc544fd4ed8a7995c6d2a5aab',
+  antigravity: '4ae2a900cbdbbf8a23db5a3ce329ecaa4a1b50e24e4cf3e3ce2e2f8835a76cd7',
   opencode: 'ea6a66a96ab3d84dc64dae145952039309ec6171ba253c36c6c4b872a9a1956b',
   'gemini-cli': 'c80bc86389908f57d8965c06973bb3db4aa1364d47f9e351f0c0faccd5cce322',
   kimi: '8015cd2e98d0997013dd8c027de77ae2919e93a3a2883f90a57e1e40ad45ad73',
@@ -627,7 +628,7 @@ const JOIN_SNAPSHOTS = {
 };
 
 test('JOIN.md variants: every agent kind states wait mode, cost, permissions, persistence, uploads, memory, farewell', () => {
-  assert.deepEqual(AGENT_KIND_NAMES, ['claude-code', 'codex-desktop', 'codex-cli', 'opencode', 'gemini-cli', 'kimi', 'dsh', 'pi-user', 'generic']);
+  assert.deepEqual(AGENT_KIND_NAMES, ['claude-code', 'codex-desktop', 'codex-cli', 'antigravity', 'opencode', 'gemini-cli', 'kimi', 'dsh', 'pi-user', 'generic']);
   const f = JOIN_FIXTURE;
   const mjs = f.roomMjs.replace(/\\/g, '/');
   const sd = f.seatDir.replace(/\\/g, '/');
@@ -687,6 +688,12 @@ test('JOIN.md variants: every agent kind states wait mode, cost, permissions, pe
   const lead = joinFor('claude-code', { role: 'lead' });
   assert.match(lead, /mark --seat .* --status accepted\|rejected\|deferred/);
   assert.match(lead, /assign --seat .* --file <草案文件>/);
+  const agy = joinFor('antigravity');
+  assert.equal(defaultWaitMode('antigravity'), 'background');
+  assert.match(agy, /UTF-8 无 BOM/);
+  assert.match(agy, /500 毫秒/);
+  assert.match(agy, /GEMINI\.md/);
+  assert.doesNotMatch(agy, /agentapi/i);
 });
 
 function fill(text, mjs, cwd) { return text.replace(/\{RULE\}/g, `Bash(node ${mjs}:*)`).replace(/\{CWD\}/g, cwd).replace(/\{ROOMMJS\}/g, mjs); }
@@ -1246,4 +1253,53 @@ test('wait and submit for a tool seat name Room tool actions; a CLI seat keeps i
     assert.equal(r.first, 'ACCEPTED MALFORMED verdict_missing attempt=b1 seq=4');
     assert.ok(r.out.split('\n').includes('房间接受了这次提交但标为 malformed，会在下一个包里追问一次；只用原样 ASCII 标记或 room 子命令更正。'), r.out);
   } finally { svcA.stop(); svcB.stop(); }
+});
+
+test('virtualizationRedirect allows macOS /tmp /var /etc -> /private/* prefix but still catches user symlinks', async () => {
+  const { virtualizationRedirect } = await import('../lib/common.mjs');
+  assert.equal(virtualizationRedirect('/tmp/demo', { platform: 'darwin', realPath: () => '/private/tmp/demo' }), null);
+  assert.equal(virtualizationRedirect('/var/folders/ab/room', { platform: 'darwin', realPath: () => '/private/var/folders/ab/room' }), null);
+  const userLink = virtualizationRedirect('/tmp/demo/link', { platform: 'darwin', realPath: () => '/private/tmp/demo/real' });
+  assert.ok(userLink && userLink.real === '/private/tmp/demo/real', 'user symlink under /tmp is still caught');
+  const winLink = virtualizationRedirect('C:\\tmp\\demo', { platform: 'win32', realPath: () => 'C:\\private\\tmp\\demo' });
+  assert.ok(winLink, 'non-darwin redirection is still caught');
+});
+
+test('admin add-seat generates POSIX room.sh alongside room.cmd and locks token permissions on POSIX', async () => {
+  const { renderRoomSh } = await import('../lib/join.mjs');
+  const shDefault = renderRoomSh({ roomMjs: '/opt/room dev/room.mjs' });
+  assert.match(shDefault, /^#!\/bin\/sh\nexec node '.*room\.mjs' "\$@"\n$/);
+  const shApp = renderRoomSh({ roomMjs: "/opt/it's/room.mjs", runtime: { kind: 'app', exe: '/opt/app/yuanzhuo' } });
+  assert.match(shApp, /^#!\/bin\/sh\nELECTRON_RUN_AS_NODE=1 exec '.*yuanzhuo' '.*it'\\''s.*room\.mjs' "\$@"\n$/);
+
+  const fake = makeRoom({ seats: [{ seat: 'A', role: 'participant', agent: 'generic', wait: 'background' }] });
+  const shPath = path.join(fake.seatDir('A'), 'room.sh');
+  assert.ok(fs.existsSync(shPath), 'room.sh created');
+  const shBody = fs.readFileSync(shPath, 'utf8');
+  assert.ok(shBody.startsWith('#!/bin/sh\n') && !shBody.includes('\r\n'), 'LF line endings');
+  if (process.platform !== 'win32') {
+    assert.equal(fs.statSync(path.join(fake.roomDir, 'admin.token')).mode & 0o777, 0o600);
+    assert.equal(fs.statSync(path.join(fake.seatDir('A'), 'token')).mode & 0o777, 0o600);
+    assert.equal(fs.statSync(shPath).mode & 0o777, 0o755);
+  }
+});
+
+test('cmdWait wakes via fs.watch well before pollMs and handles incremental/overwritten/torn events.jsonl', async () => {
+  const fake = makeRoom({ seats: [{ seat: 'B', role: 'executor', agent: 'generic', wait: 'background' }] });
+  fake.setEvents([]);
+  fake.setState(baseState({ currentSeat: 'A', attempt: attemptFor('A', 'a1') }));
+  // Write a partial torn line into events.jsonl before starting wait; later complete it + flip turn.
+  const evPath = path.join(fake.roomDir, 'events.jsonl');
+  fs.writeFileSync(evPath, '{"seq":1,"type":"round_started"');
+  const t0 = Date.now();
+  const waitP = seat(fake, 'wait', { seatId: 'B', timeout: '5' }, { pollMs: 4000 });
+  setTimeout(() => {
+    fs.appendFileSync(evPath, ',"roundId":1}\n');
+    fake.setState(baseState({ currentSeat: 'B', attempt: attemptFor('B', 'b9') }));
+  }, 120);
+  const r = await waitP;
+  const elapsed = Date.now() - t0;
+  assert.equal(r.code, EXIT.TURN);
+  assert.match(r.first, /^TURN attempt=b9 /);
+  assert.ok(elapsed < 2500, `expected fs.watch fast wakeup (<2500ms with 4000ms poll), took ${elapsed}ms`);
 });

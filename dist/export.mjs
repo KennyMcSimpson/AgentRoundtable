@@ -4,7 +4,7 @@
 //   node dist/export.mjs <roomDir> <out.zip> [--redact]
 //
 // The export itself (public layer only, secret and absolute-path scan, --redact) lives in
-// lib/export.mjs so that `room admin export` and hosts that vendor only lib/ (PI-Desktop) can run it.
+// lib/export.mjs so that `room admin export` and hosts that vendor only lib/ can run it.
 // Exit codes: 0 exported; 2 blocked by scan hits; 9 error.
 import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';

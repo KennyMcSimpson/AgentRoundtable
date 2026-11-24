@@ -14,6 +14,7 @@ import { startHttp, checkHostOrigin } from '../lib/http.mjs';
 import { createFakeProvider } from '../lib/hosted/pi.mjs';
 import { findOnPath } from '../lib/spawn.mjs';
 import { SURFACE_LINES } from '../lib/surface.mjs';
+import { buildItemTable } from '../lib/structured.mjs';
 
 const roots = [];
 after(() => { for (const r of roots) fs.rmSync(r, { recursive: true, force: true }); });
@@ -778,9 +779,19 @@ test('service.lock: a stale heartbeat or a reused pid does not block a start; a 
   assert.equal(await probeLockHolder(lock, { spawn: fake('chrome|2026-10-01T07:59:59.0000000Z'), isAlive: alive, nowMs: now }), 'stale', 'not node');
   assert.equal(await probeLockHolder(lock, { spawn: fake('node|2026-10-01T07:59:59.9000000Z'), isAlive: alive, nowMs: now }), 'alive');
   // A service a host runs under its own executable (ELECTRON_RUN_AS_NODE) records that image name.
-  const hostLock = { ...lock, image: 'PI-Ecosystem' };
-  assert.equal(await probeLockHolder(hostLock, { spawn: fake('PI-Ecosystem|2026-10-01T07:59:59.9000000Z'), isAlive: alive, nowMs: now }), 'alive', 'host-embedded holder is live');
-  assert.equal(await probeLockHolder(hostLock, { spawn: fake('node|2026-10-01T07:59:59.9000000Z'), isAlive: alive, nowMs: now }), 'stale', 'a different image under that pid is not the writer');
+  const hostLock = { ...lock, image: 'HostApp' };
+  assert.equal(await probeLockHolder(hostLock, { spawn: fake('HostApp|2026-10-01T07:59:59.9000000Z'), isAlive: alive, nowMs: now, platform: 'win32' }), 'alive', 'host-embedded holder is live');
+  assert.equal(await probeLockHolder(hostLock, { spawn: fake('node|2026-10-01T07:59:59.9000000Z'), isAlive: alive, nowMs: now, platform: 'win32' }), 'stale', 'a different image under that pid is not the writer');
+  // POSIX ps-based lock probe (lstart + image name).
+  const fakePs = (stdout, code = 0) => async (file, args) => {
+    assert.equal(file, 'ps');
+    assert.deepEqual(args, ['-p', '1234', '-o', 'lstart=,comm=']);
+    return { code, stdout, stderr: '', spawnError: null, timedOut: false };
+  };
+  assert.equal(await probeLockHolder(lock, { spawn: fakePs('Thu Oct  1 07:59:59 2026 node\n'), isAlive: alive, nowMs: now, platform: 'linux' }), 'alive');
+  assert.equal(await probeLockHolder(lock, { spawn: fakePs('Thu Oct  1 09:00:00 2026 /usr/bin/node\n'), isAlive: alive, nowMs: now, platform: 'darwin' }), 'stale', 'POSIX pid reused later');
+  assert.equal(await probeLockHolder(lock, { spawn: fakePs('Thu Oct  1 07:59:59 2026 python3\n'), isAlive: alive, nowMs: now, platform: 'linux' }), 'stale', 'POSIX different image');
+  assert.equal(await probeLockHolder(lock, { spawn: fakePs('', 1), isAlive: alive, nowMs: now, platform: 'linux' }), 'stale', 'POSIX process gone');
 
   const env = makeRoom({ seats: [{ seatId: 'A', role: 'participant' }] });
   const holder = process.ppid; // a live process that is not this one
@@ -926,7 +937,7 @@ test('hosted lane seat: an injected host provider speaks in turn; without the pr
 test('a seat failure is "latest attempt failed": a later attempt clears seats[id].failed and keeps it as lastFailure', async () => {
   let calls = 0;
   const hostedProviders = { lane: () => ({ busy: false, prompt: async () => (++calls === 1 ? { text: '', stopReason: 'error', usage: null, failureClass: 'rate_limited', error: { code: 'RATE', message: '429' } } : { text: '第二轮发言', stopReason: 'end_turn', usage: null }) }) };
-  const env = makeRoom({ preset: 'discussion', seats: [{ seatId: 'A', role: 'lead' }, { seatId: 'L', role: 'participant', hosted: { kind: 'lane', lane: 'anyrouter', tier: 'discussion' } }] });
+  const env = makeRoom({ preset: 'discussion', seats: [{ seatId: 'A', role: 'lead' }, { seatId: 'L', role: 'participant', hosted: { kind: 'lane', lane: 'custom-provider', tier: 'discussion' } }] });
   const { svc } = service(env, { hostedProviders });
   await svc.admin({ cmd: 'task', text: '讨论' });
   await svc.admin({ cmd: 'start' });
@@ -1446,5 +1457,95 @@ test('surfaces: a hosted lane\'s malformed reply gets one follow-up naming marke
   assert.ok(prompts.length >= 2, `the lane was asked again: ${prompts.length}`);
   assert.ok(prompts[1].includes(SURFACE_LINES.hosted.resubmit));
   assert.ok(!prompts[1].includes('room 子命令'));
+  await svc.close();
+});
+
+// ---------------------------------------------------------------- a pass by marker (PI self-use, 2026-10-11)
+
+test('a reply that is nothing but <<ROOM:PASS>> is a pass: no message and no item for the lead; a pass with words stays a speech', async () => {
+  const replies = { L: '\n<<ROOM:PASS>>\n', M: '同意。<<ROOM:PASS>>' };
+  const hostedProviders = { lane: ({ seat }) => ({ busy: false, prompt: async () => ({ text: replies[seat.seatId], stopReason: 'end_turn', usage: null }) }) };
+  const env = makeRoom({ preset: 'discussion', seats: [
+    { seatId: 'A', role: 'lead' },
+    { seatId: 'L', role: 'participant', hosted: { kind: 'lane', lane: 'pi-complete', tier: 'discussion' } },
+    { seatId: 'M', role: 'participant', hosted: { kind: 'lane', lane: 'pi-complete', tier: 'discussion' } },
+    { seatId: 'C', role: 'participant' },
+  ] });
+  const { svc } = service(env, { hostedProviders });
+  await svc.admin({ cmd: 'task', text: '讨论' });
+  await svc.admin({ cmd: 'start', order: 'A,L,M,C' });
+  await ticks(svc);
+  seatSpeak(env, 'A', svc.state.holding.A, '开题');
+  await ticks(svc, 6);
+  const c = svc.state.holding.C;
+  assert.ok(c, 'C holds the turn after both lanes');
+  seatSpeak(env, 'C', c, '<<ROOM:PASS>>'); // a CLI seat's speech file of just the marker counts the same
+  await ticks(svc, 4);
+  const accepted = Object.fromEntries(ofType(env, 'submission_accepted').map((e) => [e.seatId, e]));
+  assert.equal(accepted.L.kind, 'pass');
+  assert.equal(accepted.L.text, null);
+  assert.equal(accepted.L.annotation, 'none');
+  assert.equal(accepted.L.msgSeq, undefined);
+  assert.equal(accepted.C.kind, 'pass');
+  assert.equal(accepted.M.kind, 'speech', 'words beside the marker are a speech');
+  assert.ok(accepted.M.text.includes('同意。'));
+  const seats = svc.state.messages.map((m) => m.seatId);
+  assert.ok(!seats.includes('L') && !seats.includes('C'), JSON.stringify(seats));
+  assert.ok(seats.includes('M'));
+  // The summary packet's item table lists M's speech only.
+  const s = svc.state.holding.A;
+  assert.ok(s, 'A holds the summary turn');
+  const summary = packetText(svc, s);
+  assert.doesNotMatch(summary, /seat=L authority=none/, "no speech block for the pass");
+  assert.match(summary, /seat=M authority=none/);
+  const items = buildItemTable(svc.state.messages.filter((m) => m.seatId !== 'A'), []).map((i) => i.seatId);
+  assert.deepEqual(items, ['M']);
+  await svc.close();
+});
+
+test('reviewer running unknownCommands marks audit_observed and verdict_recorded as tainted even when writes is empty', async () => {
+  const env = makeRoom({
+    preset: 'implement-review',
+    seats: [
+      { seatId: 'A', role: 'lead', audit: { kind: 'codex' } },
+      { seatId: 'B', role: 'executor' },
+    ],
+  });
+  const fileB = path.join(env.seats.B.cwd, 'work.txt');
+  fs.writeFileSync(fileB, 'v1\n', 'utf8');
+  const { svc } = service(env, {
+    audit: async () => ({
+      status: 'present_in_native',
+      writes: [],
+      unknownCommands: [{ command: 'python -c "print(1)"', source: 'exec', reason: 'not in allowlist: python' }],
+      tainted: false, // deliberately stale flag from custom auditor; service must still derive tainted via supervision.tainted()
+      annotation: null,
+      note: 'non-allowlisted command observed',
+    }),
+  });
+  await svc.admin({ cmd: 'task', text: '实现并审查' });
+  await svc.admin({ cmd: 'start' });
+  await ticks(svc, 3);
+  const bWork = svc.state.holding.B;
+  assert.ok(bWork, 'B holds work turn');
+  seatStructured(env, 'B', bWork, 'artifacts', { paths: ['work.txt'] });
+  await ticks(svc, 3);
+  const sha = Object.keys(svc.state.artifacts)[0];
+  assert.ok(sha, 'artifact frozen');
+  seatSpeak(env, 'B', bWork, '完成 work.txt');
+  await ticks(svc, 4);
+  const aMeet = svc.state.holding.A;
+  assert.ok(aMeet, 'A holds review turn');
+  seatSpeak(env, 'A', aMeet, `审查意见\n<<ROOM:VERDICT pass artifact=${sha}>>`);
+  await ticks(svc, 4);
+  const ao = ofType(env, 'audit_observed').find((e) => e.seatId === 'A' && e.attemptId === aMeet);
+  assert.ok(ao, 'audit_observed emitted');
+  assert.equal(ao.tainted, true, 'unknownCommands triggers tainted on audit_observed');
+  assert.equal(ao.annotation, 'tainted');
+  const vr = ofType(env, 'verdict_recorded').find((e) => e.seatId === 'A' && e.attemptId === aMeet);
+  assert.ok(vr, 'verdict_recorded emitted');
+  assert.equal(vr.tainted, true, 'verdict marked tainted');
+  assert.equal(vr.annotation, 'tainted');
+  assert.ok(vr.annotations.includes('tainted'));
   await svc.close();
 });

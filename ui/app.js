@@ -272,7 +272,7 @@
         d.audits.push(a);
         var pid = d.attemptPacket[ev.attemptId];
         if (pid && d.packets[pid]) { d.packets[pid].receipt = RECEIPT_BY_AUDIT[ev.status] || 'unknown'; d.packets[pid].auditTs = ev.ts; }
-        if (a.tainted) pushStream(d, ev, { kind: 'marker', tone: 'bad', text: '审计：席位 ' + u(ev.seatId) + ' 在回合 ' + u(ev.attemptId) + ' 里观测到写操作，标 tainted' });
+        if (a.tainted) pushStream(d, ev, { kind: 'marker', tone: 'bad', text: '审计：席位 ' + u(ev.seatId) + ' 在回合 ' + u(ev.attemptId) + ' 里' + (a.writes.length ? '观测到写操作' : '观测到非白名单命令') + '，标 tainted' });
         break;
       }
       default: break;
@@ -291,15 +291,16 @@
   // ---------------------------------------------------------------------------------------------
   function seatList(state, room, d) {
     var cfg = (room && Array.isArray(room.seats)) ? room.seats : (Array.isArray(state.seatConfigs) ? state.seatConfigs : []);
-    var byId = {};
+    var byId = Object.create(null);
+    var hasId = function (id) { return Object.prototype.hasOwnProperty.call(byId, id); };
     cfg.forEach(function (s) { if (s && s.seatId) byId[s.seatId] = Object.assign({}, s); });
     var ids = Object.keys(byId);
     var extra = [].concat(Object.keys(isObj(state.seats) ? state.seats : {}), Object.keys(d.seatStatus), Array.isArray(state.order) ? state.order : []);
-    extra.forEach(function (id) { if (id && !byId[id]) { byId[id] = { seatId: id }; ids.push(id); } });
+    extra.forEach(function (id) { if (id && !hasId(id)) { byId[id] = { seatId: id }; ids.push(id); } });
     return ids.map(function (id) {
       var s = byId[id];
-      var st = (isObj(state.seats) && isObj(state.seats[id])) ? state.seats[id] : {};
-      var ds = d.seatStatus[id] || {};
+      var st = (isObj(state.seats) && Object.prototype.hasOwnProperty.call(state.seats, id) && isObj(state.seats[id])) ? state.seats[id] : {};
+      var ds = (Object.prototype.hasOwnProperty.call(d.seatStatus, id) && d.seatStatus[id]) || {};
       s.status = st.status || ds.status || null;
       s.retained = st.retained !== undefined ? st.retained : (s.retained !== undefined ? s.retained : null);
       s.isCurrent = state.currentSeat === id || (isObj(state.attempt) && state.attempt.seatId === id);
@@ -528,8 +529,73 @@
   var POLL_MS = 2000;
   var app = {
     token: '', state: {}, room: null, derived: emptyDerived(), events: [], view: 'stream',
-    online: null, lastRender: '', timer: null, inflight: false
+    online: null, lastRender: '', timer: null, inflight: false,
+    lang: 'zh-CN', langManual: false,
+    streamMode: 'chat', seatFilter: '', showMarkers: false, arenaRoundId: null,
+    expandedBubbles: {}, highlightedSeq: null, highlightTimer: null,
+    sse: null, sseConnected: false, composing: false
   };
+
+  function getI18n() { return typeof globalThis !== 'undefined' && globalThis.RoomI18n ? globalThis.RoomI18n : null; }
+  function getChat() { return typeof globalThis !== 'undefined' && globalThis.RoomChat ? globalThis.RoomChat : null; }
+  function tUi(key, params, fallback) {
+    var i18n = getI18n();
+    if (i18n && typeof i18n.t === 'function') return i18n.t(app.lang, key, params);
+    return fallback !== undefined ? fallback : key;
+  }
+  function maybeSeedLangFromRoom(room) {
+    if (app.langManual || !isObj(room) || !room.lang) return;
+    var i18n = getI18n();
+    var next = i18n && typeof i18n.normalizeLang === 'function' ? i18n.normalizeLang(room.lang) : (room.lang === 'en' ? 'en' : 'zh-CN');
+    if (next !== app.lang) {
+      app.lang = next;
+      applyChromeLang();
+    }
+  }
+  function applyChromeLang() {
+    if (document.documentElement) document.documentElement.lang = app.lang;
+    var brandTitle = tUi('brand.room', null, '圆桌房间');
+    document.title = brandTitle;
+    var brand = document.getElementById('hdr-brand');
+    if (brand) brand.textContent = brandTitle;
+    var langBtn = document.getElementById('btn-lang');
+    if (langBtn) {
+      langBtn.textContent = tUi('lang.toggle', null, app.lang === 'en' ? '中文' : 'EN');
+      langBtn.title = tUi('lang.toggleTitle', null, '');
+    }
+    var tabButtons = document.querySelectorAll('#tabs .tab');
+    for (var i = 0; i < tabButtons.length; i += 1) {
+      var btn = tabButtons[i];
+      var v = btn.getAttribute('data-view');
+      var cnt = btn.querySelector('.count');
+      btn.textContent = tUi('tab.' + v, null, btn.textContent);
+      if (cnt) btn.appendChild(cnt);
+    }
+    var modeBtns = document.querySelectorAll('#stream-mode-tabs .rt-mode-btn');
+    for (var j = 0; j < modeBtns.length; j += 1) {
+      var m = modeBtns[j].getAttribute('data-stream-mode');
+      modeBtns[j].textContent = tUi('mode.' + m, null, modeBtns[j].textContent);
+    }
+    var comp = document.getElementById('composer-input');
+    if (comp) comp.placeholder = tUi('chat.composerPlaceholder', null, comp.placeholder);
+    var intIn = document.getElementById('interrupt-input');
+    if (intIn) intIn.placeholder = tUi('chat.composerInterruptPlaceholder', null, intIn.placeholder);
+    var ordIn = document.getElementById('stream-order-input');
+    if (ordIn) ordIn.placeholder = tUi('chat.orderPlaceholder', null, ordIn.placeholder);
+    var btnMap = [
+      ['btn-composer-send', 'chat.composerSend'],
+      ['btn-composer-interrupt', 'chat.composerInterrupt'],
+      ['btn-composer-start', 'chat.composerStart']
+    ];
+    for (var k = 0; k < btnMap.length; k += 1) {
+      var bEl = document.getElementById(btnMap[k][0]);
+      var lbl = bEl && typeof bEl.querySelector === 'function' ? bEl.querySelector('.btn-label') : null;
+      if (lbl) lbl.textContent = tUi(btnMap[k][1], null, lbl.textContent);
+    }
+    var tokEl = document.getElementById('hdr-token');
+    if (tokEl) tokEl.textContent = app.token ? tUi('hdr.tok.ok', null, '令牌：已载入（内存）') : tUi('hdr.tok.missing', null, '令牌：缺失');
+    if (app.online !== null) setOnline(app.online);
+  }
 
   function h(tag, attrs) {
     var el = document.createElement(tag);
@@ -598,7 +664,7 @@
   function setToken(t) {
     app.token = t || '';
     var el = document.getElementById('hdr-token');
-    el.textContent = app.token ? '令牌：已载入（内存）' : '令牌：缺失';
+    el.textContent = app.token ? tUi('hdr.tok.ok', null, '令牌：已载入（内存）') : tUi('hdr.tok.missing', null, '令牌：缺失');
     el.className = 'tok ' + (app.token ? 'tok-ok' : 'tok-missing');
     document.getElementById('token-bar').classList.toggle('hidden', !!app.token);
     document.querySelectorAll('[data-action]').forEach(function (el2) {
@@ -606,6 +672,7 @@
       var a = ACTIONS[key];
       if (!a) return;
       var ctl = el2.tagName === 'FORM' ? el2.querySelector('button[type=submit]') : el2;
+      if (!ctl) return;
       if (!a.cmd) { ctl.disabled = true; ctl.title = a.reason; if (!el2.querySelector('.unavailable')) el2.appendChild(h('span', { class: 'unavailable', text: a.reason })); return; }
       ctl.disabled = !app.token;
       ctl.title = app.token ? ('POST /api/admin cmd=' + a.cmd) : '没有 admin 令牌';
@@ -629,8 +696,85 @@
   function setOnline(ok, detail) {
     app.online = ok;
     var el = document.getElementById('hdr-conn');
-    el.textContent = '连接：' + (ok ? '在线 ' + fmtTs(new Date().toISOString()) : '离线' + (detail ? '（' + detail + '）' : ''));
+    if (ok) {
+      var prefix = app.sseConnected ? tUi('hdr.conn.sse', null, '连接：实时（SSE）') : tUi('hdr.conn.poll', null, '连接：在线（轮询）');
+      el.textContent = prefix + ' ' + fmtTs(new Date().toISOString());
+    } else {
+      el.textContent = tUi('hdr.conn.offline', null, '连接：离线') + (detail ? '（' + detail + '）' : '');
+    }
     el.className = 'conn ' + (ok ? 'conn-ok' : 'conn-bad');
+  }
+  function applyStatePayload(payload) {
+    var un = unwrapState(payload);
+    var since = app.derived.lastSeq || 0;
+    app.state = un.state;
+    if (un.room) {
+      app.room = un.room;
+      maybeSeedLangFromRoom(un.room);
+    }
+    if (num(app.state.lastSeq) !== null && since > 0 && app.state.lastSeq < since) {
+      app.derived = emptyDerived();
+      app.events = [];
+      app.lastRender = '';
+      return true;
+    }
+    return false;
+  }
+  function ingestEvent(ev) {
+    if (!isObj(ev) || num(ev.seq) === null || ev.seq <= (app.derived.lastSeq || 0)) return false;
+    app.events.push(ev);
+    fold(app.derived, ev);
+    return true;
+  }
+  function connectSse() {
+    if (typeof EventSource === 'undefined' || app.sse) return;
+    var since = app.derived.lastSeq || 0;
+    var es;
+    try { es = new EventSource('/api/stream?since=' + encodeURIComponent(String(since))); } catch (e) { return; }
+    app.sse = es;
+    es.addEventListener('open', function () {
+      app.sseConnected = true;
+      setOnline(true);
+    });
+    es.addEventListener('snapshot', function (ev) {
+      try {
+        var data = JSON.parse(ev.data);
+        applyStatePayload(data);
+        app.sseConnected = true;
+        setOnline(true);
+        render();
+      } catch (e) { /* ignore malformed frame */ }
+    });
+    es.addEventListener('room_event', function (ev) {
+      try {
+        var data = JSON.parse(ev.data);
+        if (ingestEvent(data)) render();
+      } catch (e) { /* ignore */ }
+    });
+    es.addEventListener('state', function (ev) {
+      try {
+        var data = JSON.parse(ev.data);
+        applyStatePayload(data);
+        setOnline(true);
+        render();
+      } catch (e) { /* ignore */ }
+    });
+    es.addEventListener('room_closed', function (ev) {
+      try {
+        var data = JSON.parse(ev.data);
+        applyStatePayload(data);
+      } catch (e) { /* ignore */ }
+      try { es.close(); } catch (e) { /* ignore */ }
+      app.sse = null;
+      app.sseConnected = false;
+      setOnline(true);
+      render();
+    });
+    es.addEventListener('error', function () {
+      app.sseConnected = false;
+      if (es.readyState === 2) { app.sse = null; }
+      setOnline(false, 'SSE');
+    });
   }
   function poll() {
     if (app.inflight) return;
@@ -642,19 +786,15 @@
     ]).then(function (res) {
       var st = res[0], evs = res[1];
       if (!st.ok) { setOnline(false, 'state ' + st.status); return; }
-      var un = unwrapState(st.body);
-      app.state = un.state; if (un.room) app.room = un.room;
-      if (num(app.state.lastSeq) !== null && since > 0 && app.state.lastSeq < since) {
-        // The service's event log is shorter than what this page folded (new room in the same dir):
-        // drop the client-side model; the next poll refetches from seq 0.
-        app.derived = emptyDerived(); app.events = []; app.lastRender = '';
-      } else if (evs.ok) {
-        var list = unwrapEvents(evs.body).filter(function (e) { return isObj(e) && num(e.seq) !== null && e.seq > since; });
+      var reset = applyStatePayload(st.body);
+      if (!reset && evs.ok) {
+        var list = unwrapEvents(evs.body).filter(function (e) { return isObj(e) && num(e.seq) !== null && e.seq > (app.derived.lastSeq || 0); });
         list.sort(function (a, b) { return a.seq - b.seq; });
-        list.forEach(function (e) { app.events.push(e); fold(app.derived, e); });
+        list.forEach(function (e) { ingestEvent(e); });
       }
       setOnline(true);
       render();
+      if (!app.sse && !(app.state && app.state.closed)) connectSse();
     }).catch(function (e) {
       setOnline(false, e && e.name === 'AbortError' ? '超时' : (e && e.message) || '网络错误');
     }).finally(function () { app.inflight = false; });
@@ -692,13 +832,54 @@
     return o;
   }
 
+  function switchTab(viewName) {
+    app.view = viewName;
+    document.querySelectorAll('.tab').forEach(function (x) { x.classList.toggle('active', x.getAttribute('data-view') === app.view); });
+    document.querySelectorAll('.view').forEach(function (x) { x.classList.toggle('active', x.getAttribute('data-view') === app.view); });
+    app.lastRender = '';
+    render();
+  }
+  function jumpToSeq(seq) {
+    app.view = 'stream';
+    app.streamMode = 'chat';
+    app.seatFilter = '';
+    app.highlightedSeq = seq;
+    if (app.highlightTimer) clearTimeout(app.highlightTimer);
+    document.querySelectorAll('.tab').forEach(function (x) { x.classList.toggle('active', x.getAttribute('data-view') === 'stream'); });
+    document.querySelectorAll('.view').forEach(function (x) { x.classList.toggle('active', x.getAttribute('data-view') === 'stream'); });
+    app.lastRender = '';
+    render();
+    var target = document.querySelector('#chat-view [data-seq="' + String(seq) + '"]');
+    if (target && typeof target.scrollIntoView === 'function') target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    app.highlightTimer = setTimeout(function () {
+      app.highlightedSeq = null;
+      app.lastRender = '';
+      render();
+    }, 1600);
+  }
+  function renderApprovalInboxBox() {
+    var chat = getChat();
+    var box = document.getElementById('approval-inbox');
+    if (!chat || !box || typeof chat.renderApprovalInbox !== 'function') return;
+    chat.renderApprovalInbox(document, box, {
+      state: app.state,
+      room: app.room,
+      derived: app.derived,
+      lang: app.lang,
+      hasToken: !!app.token,
+      onAction: function (key, params) { runAction(key, params); },
+      onJumpTab: switchTab
+    });
+  }
+
   // ---- rendering ----
   function render() {
     var s = app.state, d = app.derived;
-    var key = [d.lastSeq, s.updatedAt, s.phase, s.currentSeat, app.view, app.token ? 1 : 0].join('|');
+    var key = [d.lastSeq, s.updatedAt, s.phase, s.currentSeat, app.view, app.streamMode, app.seatFilter, app.showMarkers ? 1 : 0, app.arenaRoundId || '', app.highlightedSeq || '', app.lang, app.token ? 1 : 0].join('|');
     renderHeader();
     if (key === app.lastRender) return;
     app.lastRender = key;
+    renderApprovalInboxBox();
     renderTabCounts();
     var fn = VIEWS[app.view];
     if (fn) fn();
@@ -706,13 +887,20 @@
   function renderHeader() {
     var s = app.state, d = app.derived;
     var roomId = (app.room && app.room.id) || s.roomId || s.id;
-    document.querySelector('#hdr-room b').textContent = u(roomId);
-    var ph = document.querySelector('#hdr-phase b'); ph.textContent = u(s.phase || d.phase); ph.className = 'badge ' + toneFor(s.phase || d.phase);
-    document.querySelector('#hdr-round').innerHTML = '';
-    document.querySelector('#hdr-round').append('轮 ', h('b', { text: u(s.roundId !== undefined ? s.roundId : d.roundId) }), ' · epoch ', h('b', { text: u(s.epoch !== undefined ? s.epoch : d.epoch) }));
+    var hdrRoom = document.querySelector('#hdr-room');
+    hdrRoom.innerHTML = '';
+    hdrRoom.append(tUi('hdr.room', null, '房间') + ' ', h('b', { text: u(roomId) }));
+    var phaseVal = s.phase || d.phase;
+    var hdrPhase = document.querySelector('#hdr-phase');
+    hdrPhase.innerHTML = '';
+    hdrPhase.append(tUi('hdr.phase', null, '阶段') + ' ', h('b', { class: 'badge ' + toneFor(phaseVal), text: u(phaseVal) }));
+    var hdrRound = document.querySelector('#hdr-round');
+    hdrRound.innerHTML = '';
+    hdrRound.append(tUi('hdr.round', null, '轮') + ' ', h('b', { text: u(s.roundId !== undefined ? s.roundId : d.roundId) }), ' · epoch ', h('b', { text: u(s.epoch !== undefined ? s.epoch : d.epoch) }));
     var cur = s.currentSeat || (isObj(s.attempt) && s.attempt.seatId) || null;
-    document.querySelector('#hdr-turn').innerHTML = '';
-    document.querySelector('#hdr-turn').append('当前 ', h('b', { text: cur ? cur + (isObj(s.attempt) && s.attempt.attemptId ? ' / ' + s.attempt.attemptId : '') : '—' }));
+    var hdrTurn = document.querySelector('#hdr-turn');
+    hdrTurn.innerHTML = '';
+    hdrTurn.append(tUi('hdr.turn', null, '当前') + ' ', h('b', { text: cur ? cur + (isObj(s.attempt) && s.attempt.attemptId ? ' / ' + s.attempt.attemptId : '') : '—' }));
     document.querySelector('#hdr-seq b').textContent = String(Math.max(d.lastSeq, num(s.lastSeq) || 0));
   }
   function renderTabCounts() {
@@ -735,8 +923,74 @@
 
   var VIEWS = {};
 
+  function renderStreamOrderChips(seats) {
+    var box = document.getElementById('stream-order-chips');
+    var input = document.getElementById('stream-order-input');
+    if (!box || !input) return;
+    while (box.firstChild) box.removeChild(box.firstChild);
+    (seats || []).forEach(function (s) {
+      var sid = s && s.seatId;
+      if (!sid) return;
+      var chip = h('button', { type: 'button', class: 'rt-order-chip', text: '+ ' + sid });
+      chip.addEventListener('click', function () {
+        var cur = input.value.split(/[\s,]+/).map(function (x) { return x.trim(); }).filter(Boolean);
+        cur.push(sid);
+        input.value = cur.join(',');
+      });
+      box.appendChild(chip);
+    });
+  }
+
   VIEWS.stream = function () {
     var d = app.derived, s = app.state;
+    var chat = getChat();
+    var mode = chat ? app.streamMode : 'log';
+    var modeBar = document.querySelector('#view-stream .rt-mode-bar');
+    if (modeBar && modeBar.classList) modeBar.classList.toggle('hidden', !chat);
+    var chatBox = document.getElementById('chat-view');
+    var arenaBox = document.getElementById('arena-view');
+    var rawWrap = document.getElementById('raw-log-wrap');
+    document.querySelectorAll('#stream-mode-tabs .rt-mode-btn').forEach(function (b) {
+      b.classList.toggle('is-active', b.getAttribute('data-stream-mode') === mode);
+    });
+    if (chatBox && chatBox.classList) chatBox.classList.toggle('hidden', mode !== 'chat');
+    if (arenaBox && arenaBox.classList) arenaBox.classList.toggle('hidden', mode !== 'arena');
+    if (rawWrap && rawWrap.classList) rawWrap.classList.toggle('hidden', mode !== 'log');
+    renderStreamOrderChips(seatList(s, app.room, d));
+
+    if (chat && (mode === 'chat' || mode === 'arena')) {
+      try {
+        var chatModel = chat.buildChatModel({ state: s, room: app.room, derived: d });
+        if (mode === 'chat' && chatBox) {
+          chat.renderGroupChat(document, chatBox, chatModel, {
+            lang: app.lang,
+            seatFilter: app.seatFilter,
+            showMarkers: app.showMarkers,
+            expandedMap: app.expandedBubbles,
+            highlightedSeq: app.highlightedSeq,
+            onJumpToSeq: jumpToSeq,
+            onSetSeatFilter: function (sid) { app.seatFilter = sid; app.lastRender = ''; render(); },
+            onToggleMarkers: function (v) { app.showMarkers = v; app.lastRender = ''; render(); },
+            onRerender: function () { app.lastRender = ''; render(); }
+          });
+          return;
+        }
+        if (mode === 'arena' && arenaBox) {
+          chat.renderArenaView(document, arenaBox, chatModel, {
+            lang: app.lang,
+            selectedRoundId: app.arenaRoundId,
+            onSelectRound: function (rId) { app.arenaRoundId = rId; app.lastRender = ''; render(); },
+            onJumpToChat: jumpToSeq
+          });
+          return;
+        }
+      } catch (e) {
+        if (chatBox && chatBox.classList) chatBox.classList.toggle('hidden', true);
+        if (arenaBox && arenaBox.classList) arenaBox.classList.toggle('hidden', true);
+        if (rawWrap && rawWrap.classList) rawWrap.classList.toggle('hidden', false);
+      }
+    }
+
     var box = document.getElementById('task-box');
     box.innerHTML = '';
     var task = isObj(s.task) ? s.task : d.task;
@@ -933,7 +1187,17 @@
           v.evidence ? h('pre', { text: typeof v.evidence === 'string' ? v.evidence : JSON.stringify(v.evidence, null, 1) }) : null);
         if (audit && audit.tainted) {
           row.appendChild(h('div', null, badge('tainted 证据', 'bad'), ' 审查回合里观测到：'));
-          row.appendChild(h('ul', { class: 'plain' }, audit.writes.map(function (w) { return h('li', null, h('code', { text: typeof w === 'string' ? w : (u(w.op) + ' ' + u(w.path)) })); }), audit.unknownCommands.map(function (c) { return h('li', null, '未知命令 ', h('code', { text: typeof c === 'string' ? c : fmtArgv(c.argv || c) })); })));
+          row.appendChild(h('ul', { class: 'plain' },
+            audit.writes.map(function (w) {
+              var label = typeof w === 'string' ? w : (u(w.op || w.source) + ' ' + u(w.path || w.command));
+              return h('li', null, h('code', { text: label }));
+            }),
+            audit.unknownCommands.map(function (c) {
+              var label = typeof c === 'string'
+                ? c
+                : (Array.isArray(c.argv) ? fmtArgv(c.argv) : (u(c.command) + (c.reason ? ' (' + c.reason + ')' : '')));
+              return h('li', null, '未知命令 ', h('code', { text: label }));
+            })));
         } else if (!audit) row.appendChild(h('div', { class: 'hint', text: '该回合未审计。' }));
         card.appendChild(row);
       });
@@ -1110,23 +1374,66 @@
   }
 
   // ---- boot ----
+  function clearFragment() {
+    if (typeof history !== 'undefined' && history && typeof history.replaceState === 'function') {
+      history.replaceState(null, '', location.pathname);
+    }
+  }
   function boot() {
     setToken(readTokenFromFragment());
-    window.addEventListener('hashchange', function () { setToken(readTokenFromFragment()); render(); });
+    clearFragment();
+    window.addEventListener('hashchange', function () {
+      var next = readTokenFromFragment();
+      if (next) { setToken(next); clearFragment(); }
+      render();
+    });
     document.getElementById('token-form').addEventListener('submit', function (e) {
       e.preventDefault();
       var v = document.getElementById('token-input').value.trim();
       document.getElementById('token-input').value = '';
-      if (v) { history.replaceState(null, '', '#' + v); setToken(v); app.lastRender = ''; render(); }
+      if (v) { clearFragment(); setToken(v); app.lastRender = ''; render(); }
     });
+    var langBtn = document.getElementById('btn-lang');
+    if (langBtn) {
+      langBtn.addEventListener('click', function () {
+        app.langManual = true;
+        app.lang = app.lang === 'en' ? 'zh-CN' : 'en';
+        applyChromeLang();
+        app.lastRender = '';
+        render();
+      });
+    }
+    var modeTabs = document.getElementById('stream-mode-tabs');
+    if (modeTabs) {
+      modeTabs.addEventListener('click', function (e) {
+        var b = e.target && typeof e.target.closest === 'function' ? e.target.closest('.rt-mode-btn') : null;
+        if (!b) return;
+        app.streamMode = b.getAttribute('data-stream-mode') || 'chat';
+        app.lastRender = '';
+        render();
+      });
+    }
+    var compInput = document.getElementById('composer-input');
+    if (compInput) {
+      compInput.addEventListener('compositionstart', function () { app.composing = true; });
+      compInput.addEventListener('compositionend', function () { app.composing = false; });
+      compInput.addEventListener('keydown', function (ev) {
+        var chat = getChat();
+        var form = document.getElementById('form-say');
+        var submitNow = function () {
+          if (!form) return;
+          if (typeof form.requestSubmit === 'function') form.requestSubmit();
+          else runAction('say', formValues(form)).then(function () { if (typeof form.reset === 'function') form.reset(); });
+        };
+        if (chat && typeof chat.handleComposerKeyDown === 'function') {
+          chat.handleComposerKeyDown(ev, { composing: app.composing, locked: !app.token || !compInput.value.trim(), onSubmit: submitNow });
+        }
+      });
+    }
     document.getElementById('tabs').addEventListener('click', function (e) {
       var b = e.target.closest('.tab');
       if (!b) return;
-      app.view = b.getAttribute('data-view');
-      document.querySelectorAll('.tab').forEach(function (x) { x.classList.toggle('active', x === b); });
-      document.querySelectorAll('.view').forEach(function (x) { x.classList.toggle('active', x.getAttribute('data-view') === app.view); });
-      app.lastRender = '';
-      render();
+      switchTab(b.getAttribute('data-view'));
     });
     document.querySelectorAll('form[data-action]').forEach(function (form) {
       form.addEventListener('submit', function (e) {
@@ -1144,7 +1451,8 @@
       btn.addEventListener('click', function () { runAction(key, {}); });
     });
     poll();
-    app.timer = setInterval(poll, POLL_MS);
+    connectSse();
+    app.timer = setInterval(function () { if (!app.sseConnected) poll(); }, POLL_MS);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();

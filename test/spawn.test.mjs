@@ -293,3 +293,49 @@ test('findCodex order: CODEX_CLI_PATH, then config.toml, then the Desktop bin di
     assert.equal(codexPathFromConfig(path.join(root, 'no-such.toml')), null);
   } finally { rmrf(root); }
 });
+
+test('spawnClean honours AbortSignal (pre-aborted and in-flight cancellation)', async () => {
+  const pre = new AbortController();
+  pre.abort();
+  const r0 = await spawnClean(NODE, ['-e', 'console.log("should-not-run")'], { signal: pre.signal, timeoutMs: 5000 });
+  assert.equal(r0.aborted, true);
+  assert.equal(r0.pid, null);
+  assert.equal(r0.stdout, '');
+
+  const ac = new AbortController();
+  const started = Date.now();
+  const p = spawnClean(NODE, ['-e', 'setTimeout(() => console.log("late"), 30000)'], { signal: ac.signal, timeoutMs: 30_000 });
+  setTimeout(() => ac.abort(), 120);
+  const r1 = await p;
+  const elapsed = Date.now() - started;
+  assert.equal(r1.aborted, true);
+  assert.equal(r1.timedOut, false);
+  assert.ok(elapsed < 10_000, `aborted child should stop quickly, took ${elapsed}ms`);
+});
+
+test('spawnClean kills POSIX process group on abort (no orphan grandchild)', { skip: WIN }, async () => {
+  const root = tempRoot();
+  const pidFile = path.join(root, 'grandchild.pid');
+  try {
+    const ac = new AbortController();
+    const script = [
+      'const fs = require("fs");',
+      'const { spawn } = require("child_process");',
+      'const g = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], { stdio: "ignore" });',
+      'fs.writeFileSync(process.argv[1], String(g.pid));',
+      'setTimeout(() => {}, 60000);',
+    ].join(' ');
+    const p = spawnClean(NODE, ['-e', script, pidFile], { signal: ac.signal, timeoutMs: 20_000 });
+    const deadline = Date.now() + 5000;
+    while (!fs.existsSync(pidFile) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 25));
+    assert.ok(fs.existsSync(pidFile), 'grandchild pid written');
+    const gpid = Number(fs.readFileSync(pidFile, 'utf8').trim());
+    ac.abort();
+    const r = await p;
+    assert.equal(r.aborted, true);
+    await new Promise((r) => setTimeout(r, 150));
+    let alive = true;
+    try { process.kill(gpid, 0); } catch { alive = false; }
+    assert.equal(alive, false, `grandchild pid ${gpid} should be killed with process group`);
+  } finally { rmrf(root); }
+});

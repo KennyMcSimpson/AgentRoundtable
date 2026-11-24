@@ -9,7 +9,7 @@ import path from 'node:path';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { testRunsRoot, randomHex, ROOM_FILES as F } from '../lib/common.mjs';
-import { startLobby, suggestedSeatCwd, seatFolderProblem, samePath } from '../lib/lobby.mjs';
+import { startLobby, defaultSeatsRoot, suggestedSeatCwd, seatHint, seatFolderProblem, samePath } from '../lib/lobby.mjs';
 import { spawnClean } from '../lib/spawn.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -210,14 +210,16 @@ test('lobby: gate, create, refusals without leftovers, list, open, task + start,
   }
   assert.deepEqual(fs.readdirSync(roomsRoot), ['r1'], 'still only the created room');
 
-  // F3: the page asks whether a typed folder exists (read-only), to untick 替我新建.
-  const fe = await req(port, { pathname: `/lobby/api/folder?path=${encodeURIComponent(cwdA)}` });
+  // F3: the page asks whether a typed folder exists (read-only, token-authenticated POST), to untick 替我新建.
+  assert.equal((await req(port, { pathname: `/lobby/api/folder?path=${encodeURIComponent(cwdA)}` })).status, 405);
+  assert.equal((await req(port, { method: 'POST', pathname: '/lobby/api/folder', body: { path: cwdA } })).status, 401);
+  assert.equal((await req(port, { method: 'POST', pathname: '/lobby/api/folder', body: { token: 'wrong', path: cwdA } })).status, 401);
+  const fe = await req(port, { method: 'POST', pathname: '/lobby/api/folder', body: { token, path: cwdA } });
   assert.deepEqual([fe.status, fe.json.exists, fe.json.isDir], [200, true, true]);
-  const fm = await req(port, { pathname: `/lobby/api/folder?path=${encodeURIComponent(path.join(b, 'nope'))}` });
-  assert.deepEqual([fm.json.exists, fm.json.isDir], [false, false]);
+  const fm = await req(port, { method: 'POST', pathname: '/lobby/api/folder', body: { token, path: path.join(b, 'nope') } });
+  assert.deepEqual([fm.status, fm.json.exists, fm.json.isDir], [200, false, false]);
   assert.ok(!fs.existsSync(path.join(b, 'nope')), 'the check creates nothing');
-  assert.equal((await req(port, { pathname: '/lobby/api/folder?path=relative' })).status, 400);
-  assert.equal((await req(port, { method: 'POST', pathname: '/lobby/api/folder', body: { token } })).status, 405);
+  assert.equal((await req(port, { method: 'POST', pathname: '/lobby/api/folder', body: { token, path: 'relative' } })).status, 400);
 
   // List.
   const list = await req(port, { pathname: '/lobby/api/rooms' });
@@ -477,8 +479,8 @@ test('ui/lobby.js never puts the lobby token in a URL', async () => {
   assert.equal((code.match(/takeTokenFromFragment\(\)/g) || []).length, 2, 'defined once, called once');
   // LOBBY-SEC-5: a room id is never concatenated into a CSS selector.
   assert.ok(!/querySelector(All)?\([^)]*\+/.test(code), 'no selector built from data');
-  // F3 / F4: a typed folder is checked read-only; a built-in Pi seat is sent as hosted 'pi:<tier>'.
-  assert.match(code, /getJson\('\/lobby\/api\/folder\?path=' \+ encodeURIComponent\(v\)\)/);
+  // F3 / F4: a typed folder is checked via authenticated POST; a built-in Pi seat is sent as hosted 'pi:<tier>'.
+  assert.match(code, /postJson\('\/lobby\/api\/folder', \{ path: v \}\)/);
   assert.match(code, /create\.checked = !res\.json\.exists;/);
   assert.match(code, /s\.hosted = 'pi:' \+ tier\.value; return s;/);
   assert.match(code, /preset === 'simplified'/);
@@ -486,4 +488,25 @@ test('ui/lobby.js never puts the lobby token in a URL', async () => {
   const html = fs.readFileSync(path.join(ROOT, 'ui', 'lobby.html'), 'utf8');
   assert.ok(!/<script>(?!<\/script>)|\son[a-z]+=/.test(html), 'no inline script or handler in lobby.html');
   assert.ok(!/<style>|\sstyle=/.test(html), 'no inline style in lobby.html');
+});
+
+test('defaultSeatsRoot honours ROOM_DEV_HOME and meta/seatHint include antigravity without agentapi', async () => {
+  const b = base();
+  assert.equal(defaultSeatsRoot({ ROOM_DEV_HOME: b }), path.join(b, 'room-seats'));
+  const prev = process.env.ROOM_DEV_HOME;
+  process.env.ROOM_DEV_HOME = b;
+  try {
+    assert.equal(suggestedSeatCwd('r9', 'A'), path.join(b, 'room-seats', 'r9-A'));
+    assert.equal(suggestedSeatCwd('r9', 'A', path.join(b, 'explicit-home')), path.join(b, 'explicit-home', 'room-seats', 'r9-A'));
+  } finally {
+    if (prev === undefined) delete process.env.ROOM_DEV_HOME; else process.env.ROOM_DEV_HOME = prev;
+  }
+  const hint = seatHint({ agent: 'antigravity', cwd: path.join(b, 'seats', 'A') });
+  assert.match(hint, /Antigravity/);
+  assert.doesNotMatch(hint, /agentapi/i);
+  const lobby = await startLobby({ port: 0, roomsRoot: path.join(b, 'rooms') });
+  lobbies.push(lobby);
+  const meta = (await req(lobby.port, { pathname: '/lobby/api/meta' })).json;
+  assert.ok(meta.agents.some((a) => a.id === 'antigravity'), 'meta.agents includes antigravity');
+  await lobby.close();
 });

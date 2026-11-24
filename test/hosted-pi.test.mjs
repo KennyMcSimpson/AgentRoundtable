@@ -180,7 +180,7 @@ describe('classifyCommand', () => {
     assert.equal(classifyCommand(['git', 'stash', 'clear']).category, 'delete');
   });
 
-  test('dangerous commands are found through cmd /c, powershell -Command, bash -c, wsl and rtk proxy', () => {
+  test('dangerous commands are found through cmd /c, powershell -Command, bash -c, wsl and env', () => {
     const cases = [
       [['cmd', '/c', 'git push'], 'git_push', ['cmd']],
       [['cmd.exe', '/d', '/s', '/c', '"git push origin main"'], 'git_push', ['cmd']],
@@ -198,10 +198,7 @@ describe('classifyCommand', () => {
       [['sh', '-c', 'echo $(git push)'], 'git_push', ['sh']],
       [['wsl', '-e', 'git', 'push'], 'git_push', ['wsl']],
       [['wsl', 'git push'], 'git_push', ['wsl']],
-      [['rtk', 'proxy', 'git', 'push'], 'git_push', ['rtk']],
-      [['rtk', 'git', 'push'], 'git_push', ['rtk']],
-      [['rtk.exe', 'proxy', 'curl', 'http://x'], 'network', ['rtk']],
-      [['rtk', 'proxy', 'cmd', '/c', 'git push'], 'git_push', ['rtk', 'cmd']],
+      [['env', 'A=1', 'cmd', '/c', 'git push'], 'git_push', ['env', 'cmd']],
       [['cmd', '/c', 'powershell -Command "git push"'], 'git_push', ['cmd', 'powershell']],
       [['env', 'A=1', 'git', 'push'], 'git_push', ['env']],
       [['sudo', 'git', 'push'], 'git_push', ['sudo']],
@@ -213,9 +210,8 @@ describe('classifyCommand', () => {
       assert.equal(r.category, cat, argv.join(' '));
       assert.deepEqual(r.via, via, argv.join(' '));
     }
-    // Wrappers around safe commands: rtk proxy is transparent; shells stay opaque.
-    assert.equal(classifyCommand(['rtk', 'proxy', 'git', 'status']).dangerous, false);
-    assert.equal(classifyCommand(['rtk', 'git', 'diff']).dangerous, false);
+    // Wrappers around safe commands: env is transparent; shells stay opaque.
+    assert.equal(classifyCommand(['env', 'A=1', 'git', 'status']).dangerous, false);
     assert.equal(classifyCommand(['cmd', '/c', 'git status']).category, 'shell');
     assert.equal(classifyCommand(['powershell', '-EncodedCommand', 'ZwBpAHQA']).category, 'shell');
     assert.equal(classifyCommand(['powershell', '-File', 'x.ps1']).category, 'shell');
@@ -590,7 +586,7 @@ describe('exec tier (write / edit / exec with interception)', () => {
       out.shell = await callTool('exec', { argv: ['powershell', '-Command', 'Get-Date'] });
       out.psDel = await callTool('exec', { argv: ['powershell', '-Command', 'Remove-Item *'] });
       out.cmdPush = await callTool('exec', { argv: ['cmd', '/c', 'git push'] });
-      out.rtkPush = await callTool('exec', { argv: ['rtk', 'proxy', 'git', 'push'] });
+      out.envPush = await callTool('exec', { argv: ['env', 'A=1', 'git', 'push'] });
       out.bad = await callTool('exec', { argv: ['git', 42] });
       return { text: 'x' };
     }]);
@@ -599,7 +595,7 @@ describe('exec tier (write / edit / exec with interception)', () => {
     assert.deepEqual(spawnCalls[0].args, ['status']);
     assert.equal(spawnCalls[0].o.cwd, cwd); assert.deepEqual(spawnCalls[0].o.env, {}); assert.equal(spawnCalls[0].o.timeoutMs, 5000);
     assert.match(out.ok.content[0].text, /exit=0/); assert.match(out.ok.content[0].text, /ran git/);
-    for (const [k, cat] of [['push', 'git_push'], ['net', 'network'], ['del', 'delete'], ['shell', 'shell'], ['psDel', 'delete'], ['cmdPush', 'git_push'], ['rtkPush', 'git_push']]) {
+    for (const [k, cat] of [['push', 'git_push'], ['net', 'network'], ['del', 'delete'], ['shell', 'shell'], ['psDel', 'delete'], ['cmdPush', 'git_push'], ['envPush', 'git_push']]) {
       assert.equal(out[k].details.pending, true, k); assert.equal(out[k].details.category, cat, k);
     }
     const pend = events.filter((e) => e.type === 'permission_pending' && e.tool === 'exec');

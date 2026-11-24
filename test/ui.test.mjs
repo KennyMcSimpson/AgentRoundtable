@@ -97,6 +97,81 @@ test('admin token is read from location.hash, never from the query string or sto
   assert.doesNotMatch(appSrc, /location\.search|URLSearchParams|location\.href/, 'no query-string reads');
   assert.doesNotMatch(appSrc, /localStorage|sessionStorage|document\.cookie|indexedDB/, 'token is not persisted anywhere');
   assert.match(appSrc, /setToken\(readTokenFromFragment\(\)\)/, 'boot loads the fragment token');
+  assert.match(appSrc, /history\.replaceState\(null,\s*'',\s*location\.pathname\)/, 'fragment token is scrubbed from the address bar');
+});
+
+test('boot() scrubs #token via history.replaceState and keeps app.token across empty hashchange', () => {
+  const replaceCalls = [];
+  const winListeners = {};
+  const formListeners = {};
+  const loc = { pathname: '/', hash: '#0123456789abcdef0123456789abcdef' };
+  const tokenInput = { value: '' };
+  const tokenState = { textContent: '', className: '' };
+  const dummyEl = () => ({
+    textContent: '', className: '', innerHTML: '', disabled: false, title: '', value: '', placeholder: '',
+    addEventListener: () => {}, append: () => {}, appendChild: () => {}, removeChild: () => {},
+    replaceWith: () => {}, querySelector: () => null, classList: { toggle: () => {} },
+    getAttribute: () => '',
+  });
+  const doc = {
+    readyState: 'complete',
+    addEventListener: () => {},
+    getElementById: (id) => {
+      if (id === 'token-form') return { addEventListener: (ev, fn) => { formListeners[ev] = fn; } };
+      if (id === 'token-input') return tokenInput;
+      if (id === 'hdr-token') return tokenState;
+      return dummyEl();
+    },
+    querySelectorAll: () => [],
+    querySelector: () => dummyEl(),
+    createElement: () => dummyEl(),
+    createTextNode: (t) => ({ nodeType: 3, textContent: t }),
+  };
+  const sandbox = {
+    location: loc,
+    history: {
+      replaceState: (state, title, url) => {
+        replaceCalls.push([state, title, url]);
+        loc.hash = '';
+      },
+    },
+    window: {
+      addEventListener: (ev, fn) => { winListeners[ev] = fn; },
+    },
+    document: doc,
+    fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve({ state: {}, room: {}, events: [] }), text: () => Promise.resolve('{}') }),
+    setInterval: () => 1,
+    clearInterval: () => {},
+    setTimeout: () => 1,
+    clearTimeout: () => {},
+  };
+  const fn = new vm.Script(`(function (globalThis, window, document, location, history, fetch, setInterval, clearInterval, setTimeout, clearTimeout) {\n${appSrc}\n})`, { filename: 'app.js' }).runInThisContext();
+  fn(sandbox, sandbox.window, sandbox.document, sandbox.location, sandbox.history, sandbox.fetch, sandbox.setInterval, sandbox.clearInterval, sandbox.setTimeout, sandbox.clearTimeout);
+
+  assert.equal(replaceCalls.length, 1, 'boot scrubbed the initial #token');
+  assert.deepEqual(replaceCalls[0], [null, '', '/']);
+  assert.equal(loc.hash, '');
+  assert.match(tokenState.textContent, /已载入/, 'token loaded into memory');
+
+  // Empty hashchange (e.g. triggered after clearing fragment) must NOT wipe the in-memory token.
+  winListeners.hashchange();
+  assert.match(tokenState.textContent, /已载入/, 'empty hashchange keeps app.token');
+
+  // A new non-empty #token updates app.token and scrubs the fragment again.
+  loc.hash = '#fedcba9876543210fedcba9876543210';
+  winListeners.hashchange();
+  assert.equal(replaceCalls.length, 2, 'new #token scrubbed again');
+  assert.equal(loc.hash, '');
+  assert.match(tokenState.textContent, /已载入/);
+
+  // Submitting token-form updates app.token and ensures any fragment is scrubbed.
+  loc.hash = '#stale';
+  tokenInput.value = 'aaaa1111bbbb2222cccc3333dddd4444';
+  formListeners.submit({ preventDefault: () => {} });
+  assert.equal(replaceCalls.length, 3);
+  assert.equal(loc.hash, '');
+  assert.equal(tokenInput.value, '');
+  assert.match(tokenState.textContent, /已载入/);
 });
 
 test('admin token is sent only inside the POST /api/admin body', () => {

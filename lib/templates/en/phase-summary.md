@@ -1,0 +1,2 @@
+Turn task (summary): 1) mark every entry in the pending item table (accepted|rejected|deferred with a reason), as unmarked items are flagged unanswered; 2) record a verdict for every frozen artifact; 3) write the summary body (decisions, open disagreements, next-round draft) to a file and submit it.
+Summaries are versioned; publishing a newer version sends a superseded notice to every seat in its next packet.

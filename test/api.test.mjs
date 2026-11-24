@@ -1,5 +1,5 @@
-// Embedding API (lib/api.mjs): a full implement-review round driven in-process exactly as a host
-// (PI-Desktop) would: createRoom, addSeat, openRoom, seat clients, admin through the running service.
+// Embedding API (lib/api.mjs): a full implement-review round driven in-process exactly as an
+// embedding host would: createRoom, addSeat, openRoom, seat clients, admin through the running service.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -131,17 +131,17 @@ test('a hosted seat records --model; the lane provider factory sees it on seat.h
   const cwdA = path.join(b, 'seats', 'A'); const cwdL = path.join(b, 'seats', 'L');
   fs.mkdirSync(cwdA, { recursive: true }); fs.mkdirSync(cwdL, { recursive: true });
   await createRoom({ dir: roomDir, id: 'r3', preset: 'discussion' });
-  const bad = await addSeat({ dir: roomDir, seat: 'A', role: 'lead', agent: 'claude-code', cwd: cwdA, model: 'gpt-6-astra' });
+  const bad = await addSeat({ dir: roomDir, seat: 'A', role: 'lead', agent: 'claude-code', cwd: cwdA, model: 'example-model-x' });
   assert.equal(bad.status, 'ERROR', 'an embedded agent picks its own model');
-  const badId = await addSeat({ dir: roomDir, seat: 'L', role: 'participant', hosted: 'lane:anyrouter', cwd: cwdL, model: 'bad model; rm' });
+  const badId = await addSeat({ dir: roomDir, seat: 'L', role: 'participant', hosted: 'lane:custom-provider', cwd: cwdL, model: 'bad model; rm' });
   assert.equal(badId.status, 'ERROR', 'model ids are a restricted charset');
   await addSeat({ dir: roomDir, seat: 'A', role: 'lead', agent: 'generic', wait: 'background', cwd: cwdA });
-  const sl = await addSeat({ dir: roomDir, seat: 'L', role: 'participant', hosted: 'lane:anyrouter', cwd: cwdL, model: 'gpt-6-astra' });
+  const sl = await addSeat({ dir: roomDir, seat: 'L', role: 'participant', hosted: 'lane:custom-provider', cwd: cwdL, model: 'example-model-x' });
   assert.equal(sl.status, 'SEAT', JSON.stringify(sl));
-  assert.match(sl.lines[0], /hosted=lane:anyrouter:discussion model=gpt-6-astra/);
+  assert.match(sl.lines[0], /hosted=lane:custom-provider:discussion model=example-model-x/);
   const seatJson = JSON.parse(fs.readFileSync(path.join(roomDir, 'seats', 'L', 'seat.json'), 'utf8'));
-  assert.deepEqual(seatJson.hosted, { kind: 'lane', lane: 'anyrouter', tier: 'discussion', model: 'gpt-6-astra' });
-  assert.match(fs.readFileSync(path.join(roomDir, 'seats', 'L', 'JOIN.md'), 'utf8'), /模型：gpt-6-astra/);
+  assert.deepEqual(seatJson.hosted, { kind: 'lane', lane: 'custom-provider', tier: 'discussion', model: 'example-model-x' });
+  assert.match(fs.readFileSync(path.join(roomDir, 'seats', 'L', 'JOIN.md'), 'utf8'), /模型：example-model-x/);
   const seen = [];
   const room = await openRoom({ roomDir, tickMs: 50, hostedProviders: { lane: ({ seat }) => { seen.push(seat.hosted); return { busy: false, prompt: async () => ({ text: '常驻席位发言', stopReason: 'end_turn', usage: null }) }; } } });
   try {
@@ -152,7 +152,7 @@ test('a hosted seat records --model; the lane provider factory sees it on seat.h
     await A.submit({ attemptId: w.fields.attempt, text: '开题' });
     await until(() => room.events().some((e) => e.type === 'submission_accepted' && e.seatId === 'L'));
     assert.equal(seen.length, 1);
-    assert.equal(seen[0].model, 'gpt-6-astra', 'the host reads the model from seat.hosted.model');
+    assert.equal(seen[0].model, 'example-model-x', 'the host reads the model from seat.hosted.model');
   } finally { await room.close(); }
 });
 
@@ -175,4 +175,27 @@ test('seatClient.wait: a rooms root with a space in it still yields the whole pa
   } finally {
     await room.close();
   }
+});
+
+test('addSeat: explicit --agent antigravity gets background wait without wake; --agent generic on an antigravity folder stays generic', async () => {
+  const b = base();
+  const roomDir = path.join(b, 'rooms', 'r-agy');
+  const cwdA = path.join(b, 'seats', 'A');
+  const cwdGeneric = path.join(b, 'seats', 'antigravity');
+  fs.mkdirSync(cwdA, { recursive: true });
+  fs.mkdirSync(cwdGeneric, { recursive: true });
+  assert.equal((await createRoom({ dir: roomDir, id: 'r-agy', preset: 'discussion' })).status, 'INIT');
+  const sa = await addSeat({ dir: roomDir, seat: 'A', role: 'lead', agent: 'antigravity', cwd: cwdA });
+  assert.equal(sa.status, 'SEAT', JSON.stringify(sa));
+  const seatA = JSON.parse(fs.readFileSync(path.join(roomDir, 'seats', 'A', 'seat.json'), 'utf8'));
+  assert.equal(seatA.agent, 'antigravity');
+  assert.equal(seatA.waitMode, 'background');
+  assert.equal(seatA.wake.enabled, false);
+  assert.match(fs.readFileSync(path.join(roomDir, 'seats', 'A', 'JOIN.md'), 'utf8'), /JOIN 变体 antigravity/);
+
+  const sb = await addSeat({ dir: roomDir, seat: 'B', role: 'participant', agent: 'generic', cwd: cwdGeneric });
+  assert.equal(sb.status, 'SEAT', JSON.stringify(sb));
+  const seatB = JSON.parse(fs.readFileSync(path.join(roomDir, 'seats', 'B', 'seat.json'), 'utf8'));
+  assert.equal(seatB.agent, 'generic', 'no implicit folder-name upgrade from generic to antigravity');
+  assert.equal(seatB.waitMode, 'manual');
 });

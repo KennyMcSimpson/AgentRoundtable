@@ -1,16 +1,21 @@
 {
   "name": "room-dev",
   "private": true,
-  "version": "0.1.0-dev",
+  "version": "0.2.0",
   "license": "MIT",
-  "description": "Governed multi-agent room (working name): seat commands, room service with Work/Meet/Summary phases, artifact freeze and recompute, disclosure in snapshot copies, read-only audit, hosted Pi seat, loopback UI.",
+  "description": "Governed multi-agent roundtable: turn moderation, Work/Meet/Summary governance, artifact freeze & recompute, snapshot-isolated disclosure, native-log audit, group-chat & Arena UI, SSE multi-room daemon, zh-CN/en bilingual support, zero npm dependencies.",
   "type": "module",
+  "bin": {
+    "room-dev": "./room.mjs"
+  },
   "engines": { "node": ">=22" },
   "scripts": {
     "test": "node --test \"test/**/*.test.mjs\"",
     "e2e": "node test/e2e.mjs",
+    "daemon": "node room.mjs daemon",
     "evidence": "node evidence/collect.mjs",
     "app": "node dist/build-app.mjs",
-    "public-scan": "node dist/public-scan.mjs"
+    "public-scan": "node dist/public-scan.mjs",
+    "export-public": "node dist/export-public.mjs"
   }
 }

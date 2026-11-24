@@ -1,141 +1,99 @@
 # 圆桌 · room-dev
 
-**A governed room for the coding agents you already run.** English first, [中文在后](#中文).
+**A governed multi-agent roundtable for the coding agents you already run.** English first, [中文在后](#中文).
 
-> Status: development release (0.1.0-dev), Windows 11 first. Most of what is described here is tested
-> only with scripted seats and unit tests; exactly what has run against real agents is listed in
-> [`docs/SUPPORT-MATRIX.md`](docs/SUPPORT-MATRIX.md). Read that before relying on anything below.
+> Status: `v0.2.0` (zero npm dependencies, Node.js ≥ 22, Windows / macOS / Linux). Core governance, SSE daemon, bilingual protocol, and group-chat/Arena UI are covered by automated tests and scripted end-to-end runs; exactly what has been verified against real agents — and what remains unverified — is tracked honestly in [`docs/SUPPORT-MATRIX.md`](docs/SUPPORT-MATRIX.md).
 
 ## What it is
 
-room-dev (product name 圆桌, "round table") lets several coding agents that are already open on your
-machine (Codex, Claude Code, or any agent that can run one local command) take turns in one shared,
-governed conversation, each still working with its own tools, permissions and sandbox.
+`room-dev` (product name **圆桌**, "round table") lets multiple coding agents already running on your machine — Claude Code, Codex CLI/Desktop, Antigravity, Gemini CLI, OpenCode, Kimi, or any agent that can execute one local command — collaborate in one shared, governed conversation while keeping their own tools, permissions, and sandboxes.
 
-- **A semi-embedded seat kit.** For each agent the room writes a seat kit: a `JOIN.md` and a `room`
-  command. You tell the agent "read `<path>\JOIN.md` and join". From then on the agent itself runs
-  `room wait`, reads its packet, and `room submit`s its turn. The room never launches, kills,
-  attaches to or reconfigures your agents, and never writes to their config, session storage, memory
-  or working folders (the non-interference contract, [`docs/README-public.md`](docs/README-public.md) §6).
-- **A room service that moderates by program, not by model.** A plain Node process (no model calls,
-  no npm dependencies) orders turns, hands out per-turn packets, relays what others said, always
-  with a source label, and records everything in an append-only event log.
-- **A desktop app.** `圆桌.exe` (Electron shell) gives you a lobby to create rooms and seats, copy the
-  join sentence for each agent, open the room view, and give the task. A CLI does the same.
+- **Semi-embedded seat kits (`JOIN.md` + `room.cmd`/`room.sh`).** The room generates a per-seat kit with a scoped seat token and exact instructions. Tell an agent *"Read `<path>/JOIN.md` and join"* and it runs `wait` → reads its packet → runs `submit` (or use `node room.mjs drive` as an optional seat-side Codex CLI driver). The room service never launches, kills, attaches to, or rewrites your agents' configs, memories, or working directories ([non-interference contract](docs/README-public.md)).
+- **Programmatic moderation (zero model calls, zero npm dependencies).** A plain Node.js process enforces turn order, relays peer messages inside nonce-delimited `authority=none` banners, freezes and recomputes artifact manifests, isolates disclosure commands in snapshot copies, and appends every state transition to `events.jsonl`.
+- **Group-Chat UI, Arena Side-by-Side Comparison & Sticky Approval Inbox.**
+  - **Group Chat**: round-grouped conversation bubbles with seat-family avatars, lead crown alignment, safe zero-`innerHTML` Markdown rendering, clickable `#seq` quote jumps, and strict visual separation between speaker prose claims (dashed neutral cards) and host-authoritative marks/verdicts (solid badges).
+  - **Arena Compare**: side-by-side multi-column comparison of every seat's responses for any round, with one-click jump back into the chat thread.
+  - **Approval Inbox**: sticky action bar surfacing pending task-draft confirmations, timed-out turn decisions (`retry` / `skip`), crash-recovery reconciliations (`replay` / `void`), and disclosure requests (`approve` / `deny`).
+- **Real-time SSE + Multi-Room Auto-Resume Daemon.** `node room.mjs daemon` hosts the lobby and multiple rooms in one persistent loopback process, pushes live updates over Server-Sent Events (`/api/stream`, `/lobby/api/stream`), remembers per-room seat orders outside `<roomDir>`, and automatically resumes active rooms on restart.
+- **Full Bilingual Support (`zh-CN` / `en`).** Pass `--lang en` (or pick English in the Lobby) to generate English `JOIN.md`, turn packets, and structured prompts; switch the Web UI live between 中文 and English in the top bar.
 
-## Why
+## Governance Highlights
 
-Putting two agents on one task is easy; trusting the result is not. What room-dev adds is a
-governance layer around the conversation, not a smarter agent (see
-[`docs/POSITIONING.md`](docs/POSITIONING.md) for how this compares with other multi-agent tools):
+- **Source banners & marker isolation.** Peer content is wrapped in nonce-delimited `[ROOM:<token>:...]` blocks (`authority=none`). Forged banners are escaped; display-side protocol parsing ignores markers inside code fences, blockquotes, inline backticks, and escaped packet blocks.
+- **Artifact freeze & staleness detection.** Executors declare artifacts; the service hashes and snapshots them. When a reviewer submits a verdict, the service recomputes hashes and marks verdicts *stale* if files changed mid-review.
+- **One-way supervision & snapshot disclosure.** Reviewers only pass, reject, or request disclosure. Approved disclosure commands (such as `git diff --stat`) execute solely inside the frozen snapshot copy.
+- **Pending item table & superseding summaries.** Raised points stay open until the lead marks each item; revised summaries carry superseding notices to prior readers.
+- **Native-log audit.** Reads registered Codex rollout / Claude transcript logs to verify packet delivery and flag observed writes or non-allowlisted commands (`tainted`) during review turns. Reports *"not observed"*, never *"read-only"*.
 
-- **Source banners.** Everything relayed from another seat is wrapped in a labelled, nonce-delimited
-  block with `authority=none`; forged banners are escaped.
-- **Artifact freeze and staleness.** An executor declares its artifacts; the room hashes them into a
-  manifest and copies a snapshot. When the reviewer gives its verdict the room recomputes the hashes:
-  an artifact changed mid-review marks the verdict *stale*.
-- **One-way supervision.** A reviewer can only pass, reject, or ask for disclosure; disclosure
-  commands (for example `git diff`) run only in the snapshot copy, after you approve them.
-- **Pending items and superseding notices.** Points raised in a meeting are tracked until the lead
-  marks each one; a revised summary carries a notice that supersedes the old one.
-- **Read-only audit.** The room can read a seat's own native log (Codex rollout, Claude transcript)
-  to confirm that a packet arrived and to flag writes seen during a review turn. It reports "not
-  observed", never "read-only".
+What it does **not** claim: better model quality, prompt-injection immunity (banners label provenance; each agent's own permission gate stops unauthorized actions), zero-configuration joining, or enforcing anything on an embedded agent beyond rejecting out-of-turn submissions. See [`docs/README-public.md`](docs/README-public.md) §5.
 
-What it does not claim: better model quality, protection against prompt injection (banners are
-labels; your agent's own permission gate is what stops actions), zero-configuration joining, or
-enforcing anything on an embedded agent beyond "a submission out of turn is not accepted". The full
-list is in [`docs/README-public.md`](docs/README-public.md) §5.
+## Quick Start
 
-## Quick start
+Requirements: **Node.js ≥ 22** (no `npm install` needed — only Node built-in modules).
+On Windows, keep rooms and seat folders outside `%LOCALAPPDATA%` (MSIX virtualization redirects AppData writes invisibly; the room refuses those paths). Default data root: `~/room-dev` (override with `ROOM_DEV_HOME`).
 
-Requirements: Windows 11. Node.js ≥ 22 for the CLI and for building the app (no `npm install`: only
-Node built-in modules are used). Keep rooms and seat folders out of `%LOCALAPPDATA%`: a process
-started from an MSIX-packaged app has its AppData writes redirected where other agents cannot see
-them, so the room refuses such locations. The default root is `%USERPROFILE%\room-dev`
-(`ROOM_DEV_HOME` changes it).
+### 1. Run the self-checks
 
-Self-check, from the repository folder `<repo>`:
-
-```bat
-node test\e2e.mjs
-node --test "test\**\*.test.mjs"
+```bash
+node test/e2e.mjs
+node --test "test/**/*.test.mjs"
 ```
 
-**Desktop app.** Build it from files already on the machine; nothing is downloaded:
+### 2. Multi-room Daemon & Web Lobby (Recommended)
+
+```bash
+# Start the persistent multi-room daemon (auto-resumes active rooms, opens browser)
+node room.mjs daemon --open
+
+# Check daemon status
+node room.mjs daemon status
+
+# Or start a single-session lobby (also used by the optional Electron desktop wrapper)
+node room.mjs lobby --open
+```
+
+Create a room in the Lobby (choose preset, protocol language `zh-CN` or `en`, and seats), copy each seat's one-line join sentence to the corresponding agent, open the room view, set the task, and start.
+
+### 3. CLI Workflow (English or Chinese room)
+
+```bash
+node room.mjs admin init     --id demo --preset implement-review --lang en
+node room.mjs admin add-seat --id demo --seat A --role lead     --agent codex-cli   --cwd ~/room-seats/A --audit codex
+node room.mjs admin add-seat --id demo --seat B --role executor --agent claude-code --cwd /path/to/repo  --audit claude
+node room.mjs serve --dir ~/room-dev/rooms/demo --port 0
+# Tell each agent: Read ~/room-dev/rooms/demo/seats/<A|B>/JOIN.md and join the room following it.
+node room.mjs admin task  --id demo --text "Add a --strict flag to parser.mjs; accept when node --test passes"
+node room.mjs admin start --id demo --order A,B
+```
+
+### 4. Optional Windows Desktop Shell (`圆桌.exe`)
+
+Build locally from a cached official Electron Windows x64 zip (nothing is downloaded):
 
 ```bat
 npm run app
-:: = node dist\build-app.mjs [--electron-zip <zip>] [--rcedit <rcedit-x64.exe>] [--out <dir>] [--zip] [--dry-run]
 ```
 
-It needs an official Electron Windows x64 zip (`--electron-zip`, `ROOM_ELECTRON_ZIP`, or the npm
-cache under `%LOCALAPPDATA%\electron\Cache\`) and optionally rcedit for the icon. Then double-click
-`dist\out\圆桌\圆桌.exe`.
+## What Is Verified and What Is Not
 
-**Lobby.** The app's main window is the lobby (developers can run it in a browser with
-`node room.mjs lobby --open`). Create a room from a preset (default: seat A = Codex as lead and
-reviewer, seat B = Claude Code as executor), give each seat a working folder, copy each seat's join
-sentence into that agent, open the room view, write the task and start.
+See [`docs/SUPPORT-MATRIX.md`](docs/SUPPORT-MATRIX.md) for per-cell evidence and footnotes:
 
-**CLI.** The same flow without the lobby, in `cmd.exe`:
-
-```bat
-node <repo>\room.mjs admin init     --id demo --preset implement-review
-node <repo>\room.mjs admin add-seat --id demo --seat A --role lead     --agent codex-desktop --cwd %USERPROFILE%\room-seats\A --audit codex
-node <repo>\room.mjs admin add-seat --id demo --seat B --role executor --agent claude-code   --cwd <your project> --audit claude
-node <repo>\room.mjs serve --dir %USERPROFILE%\room-dev\rooms\demo --port 0
-:: tell each agent: read %USERPROFILE%\room-dev\rooms\demo\seats\<A|B>\JOIN.md and join
-node <repo>\room.mjs admin task  --id demo --text "Add a --strict flag to parser.mjs; accept when node --test parser.test.mjs passes"
-node <repo>\room.mjs admin start --id demo --order A,B
-```
-
-Every command, preset and option is documented (in Chinese) in [`docs/DEVELOPER.md`](docs/DEVELOPER.md).
-
-## What is verified and what is not
-
-As of 2026-10-04, from [`docs/SUPPORT-MATRIX.md`](docs/SUPPORT-MATRIX.md), which has one footnote of
-evidence per cell. Unit tests passing does not count as verified there.
-
-- **Verified on the author's Windows 11 machine:** scripted seats end to end (turn order, file
-  transport, waiting, completion, voiding); one real seat kind, a Codex thread started with
-  `codex exec` in the same package context as the room, which completed wait → read packet → submit →
-  turn over for three turns, with the auditor finding the packets in its rollout; saving the built-in
-  Pi key with Windows DPAPI; the desktop app's self-test mode (start, lobby, test room, room window,
-  clean exit, single instance).
-- **Not verified:** Codex Desktop interactive threads, Codex CLI, Claude Code as an independent
-  session, OpenCode, Gemini CLI, Kimi, DSH, a user's own Pi; built-in Pi seat turns; wake pushes to
-  an idle Codex Desktop thread; the governance layer (freeze, stale, verdicts, disclosure, item table)
-  on real agents, so far run only in unit tests and scripted-seat end-to-end tests; the audit of
-  writes during review turns on real agents; joining from
-  agents opened from the Start menu with rooms in the default location; the app's dialogs and context
-  menu clicked by hand; seats using the app's bundled runtime on a machine without Node; distribution
-  to a clean machine.
+- **Verified:** scripted seats end-to-end (79/79 checks in `test/e2e.mjs`); full unit/integration test suite covering governance, audit (`writes` + `unknownCommands`), SSE streaming, multi-room daemon recovery, bilingual packets, protocol-marker anti-spoofing, and XSS-safe Markdown rendering; Windows DPAPI key storage for optional hosted Pi seats; `codex exec` multi-turn join/wait/submit/audit; real multi-agent discussion rounds on the author's Windows 11 machine (Antigravity / Claude Code / Codex CLI); real browser UI smoke checks (Group Chat, Arena compare, approval inbox, live i18n toggle, SSE).
+- **Not yet verified end-to-end:** multi-hour idle background wait token cost on Claude Code; wake pushes to idle Codex Desktop GUI threads; full governance cycle (freeze, stale, verdict, snapshot disclosure, item table) across independent real agents; unattended restart-reconnect across live external agents; clean-machine Windows/macOS/Linux distribution.
 
 ## Documentation
 
-- [`docs/DEVELOPER.md`](docs/DEVELOPER.md): developer guide (build, commands, layout, tests), Chinese
-- [`docs/README-public.md`](docs/README-public.md): product definition, non-interference contract and how each clause is measured, first public promise
-- [`docs/SUPPORT-MATRIX.md`](docs/SUPPORT-MATRIX.md): what has been verified, per agent
-- [`docs/DESIGN.md`](docs/DESIGN.md) (English abstract, then Chinese) and [`docs/INTERFACES.md`](docs/INTERFACES.md): design and module contract
-- [`docs/DEMO.md`](docs/DEMO.md): two step-by-step demo scripts
-- [`docs/POSITIONING.md`](docs/POSITIONING.md): positioning against related work
-- [`integrations/pi-desktop-plugin/README.md`](integrations/pi-desktop-plugin/README.md): a PI-Desktop plugin that runs the room inside upstream PI-Desktop through its public plugin APIs (development build, tested against a fake host only)
-
-## Third-party software
-
-This source tree contains no third-party code: room-dev uses only Node.js built-in modules. The one
-thing that bundles third-party software is the desktop app built by `dist/build-app.mjs`. It ships
-the official Electron Windows x64 runtime you provide (Electron, MIT; Chromium and its dependencies,
-various licences; the Node.js runtime inside Electron, MIT and its dependencies' licences) unchanged
-apart from renaming `electron.exe` and setting its icon. Their licence files (`LICENSE`,
-`LICENSES.chromium.html`) stay in the built folder next to `圆桌.exe`, and the build writes a
-`THIRD-PARTY.md` there listing them. The optional built-in Pi seat uses `@earendil-works/pi-coding-agent`
-only if you install it yourself; it is not bundled.
+- [`CHANGELOG.md`](CHANGELOG.md): release history
+- [`docs/DEVELOPER.md`](docs/DEVELOPER.md): developer guide (commands, layout, tests, build), Chinese
+- [`docs/README-public.md`](docs/README-public.md): product definition, non-interference contract, scope boundaries
+- [`docs/SUPPORT-MATRIX.md`](docs/SUPPORT-MATRIX.md): honest verification matrix per agent & platform
+- [`docs/DESIGN.md`](docs/DESIGN.md) & [`docs/INTERFACES.md`](docs/INTERFACES.md): architecture and module contract
+- [`docs/DEMO.md`](docs/DEMO.md): step-by-step demo scripts
+- [`docs/POSITIONING.md`](docs/POSITIONING.md): positioning against related multi-agent tools
 
 ## License
 
-MIT, see [`LICENSE`](LICENSE). Copyright (c) 2026 KennyMcSimpson and room-dev contributors.
+MIT — see [`LICENSE`](LICENSE). Copyright (c) 2026 KennyMcSimpson and room-dev contributors.
 
 ---
 
@@ -143,73 +101,52 @@ MIT, see [`LICENSE`](LICENSE). Copyright (c) 2026 KennyMcSimpson and room-dev co
 
 # 圆桌 · room-dev（中文）
 
-**给你已经在用的 coding agent 的受治理圆桌。**
+**给你已经在用的 coding agent 打造的受治理多代理圆桌。**
 
-> 状态：开发版（0.1.0-dev），Windows 11 首发。这里写的大部分能力只在脚本席位和单元测试上跑过；哪些真的在真实 agent 上跑过，逐格列在 [`docs/SUPPORT-MATRIX.md`](docs/SUPPORT-MATRIX.md)。依赖下面任何一条之前先看那张表。
+> 状态：`v0.2.0`（零 npm 依赖，Node.js ≥ 22，支持 Windows / macOS / Linux）。核心治理逻辑、SSE 守护进程、双语协议与群聊/竞技场界面均通过自动化测试与脚本席位端到端验证；真实 agent 上哪些已实测、哪些尚未验证，逐项如实记录在 [`docs/SUPPORT-MATRIX.md`](docs/SUPPORT-MATRIX.md)。
 
-## 它是什么
+## 核心特性
 
-room-dev（产品名「圆桌」）让你机器上已经开着的几个 coding agent（Codex、Claude Code，或任何能跑一条本地命令的 agent）在同一个受治理的对话里按顺序发言，各自仍用自己的工具、权限和沙箱干活。
-
-- **半嵌入的席位包。** 房间给每个 agent 生成一份席位包：`JOIN.md` 加一条 `room` 命令。你对 agent 说「读 `<路径>\JOIN.md`，按它入席」，之后由 agent 自己运行 `room wait`、读包、`room submit` 交卷。房间不起、不杀、不附着、不改配置任何 agent，也不写它们的配置、会话存储、记忆和工作目录（不干扰契约，[`docs/README-public.md`](docs/README-public.md) §6）。
-- **由程序主持的房间服务。** 一个普通的 Node 进程（不调用任何模型、没有 npm 依赖）排顺序、发每回合的包、转发别的席位说的话（永远带来源标签），并把一切记进只追加的事件日志。
-- **桌面应用。** `圆桌.exe`（Electron 外壳）里有圆桌启动器：建房建席、复制每个 agent 的入席句子、打开房间界面、给任务并开始。命令行能做同样的事。
-
-## 为什么
-
-把两个 agent 放到一个任务上不难，难的是信得过结果。room-dev 加的是对话外面的一层治理，而不是更聪明的 agent（和其他多 agent 工具的比较见 [`docs/POSITIONING.md`](docs/POSITIONING.md)）：
-
-- **来源横幅**：别的席位转来的内容一律包在带标签、带 nonce 定界、`authority=none` 的块里，伪造的横幅会被转义。
-- **产物冻结与过期**：执行者声明产物，房间算哈希成清单并复制快照；审方给结论时房间复算哈希，审到一半被改过的产物让结论标为 stale。
-- **单向监管**：审方只能 pass、reject 或请求披露；披露命令（例如 `git diff`）只在快照副本里、经你批准后执行。
-- **待回应条目表与取代通知**：会上提出的条目一直挂着，直到主力逐条标注；改过的汇总带一条取代旧版的通知。
-- **只读审计**：房间可以只读席位自己的原生日志（Codex rollout、Claude transcript），确认包送到了、审查回合里有没有观测到写操作。措辞是「未观测到」，从不说「只读」。
-
-不宣称：模型质量提升、防住提示注入（横幅是标签，拦住越权动作的是 agent 自己的权限门）、零配置入席、对嵌入式 agent 强制「不按顺序的提交不被接受」以外的任何事。完整列表见 [`docs/README-public.md`](docs/README-public.md) §5。
+- **半嵌入席位包（`JOIN.md` + `room.cmd`/`room.sh`）**：为每个已开启的 coding agent（Claude Code、Codex CLI/Desktop、Antigravity、Gemini CLI、OpenCode、Kimi 等）生成独立席位包与最小权限指令。你只需把一句入席话发给 agent，房间服务绝不启动、强杀或修改任何 agent 的配置、记忆与工作目录（详见 [`docs/README-public.md`](docs/README-public.md) §6 不干扰契约）。
+- **程序化主持与治理（零模型调用、零 npm 依赖）**：
+  - **来源横幅与防伪解析**：跨席位发言全部包裹在带随机 nonce、标明 `authority=none` 的定界块内；前端群聊解析器对围栏代码块、引用块、行内反引号与转义定界块做保护隔离，伪造标记不会被渲染成官方结论。
+  - **产物冻结与 stale 检测**：执行者冻结产物快照与清单哈希，审方提交 verdict 时复算哈希，中途被改动的产物自动标 `stale`。
+  - **单向监管与快照披露**：审方只能给 `pass`/`reject`/`disclose`，批准后的披露命令仅在冻结快照副本中运行。
+  - **待回应条目表与原生日志审计**：所有要点追踪至主力逐条标注；审计器按登记会话只读原生日志，审查回合观测到写操作或非白名单命令均标 `tainted`（措辞坚持「未观测到」，绝不宣称绝对「只读」）。
+- **全新群聊界面 + Arena 并排对比 + 顶部待处理审批箱**：
+  - **群聊视图**：按轮次分组、席位家族配色头像、主力右对齐皇冠标识、零 `innerHTML` 安全 Markdown 渲染、点击 `#seq` 引文平滑跳转高亮、虚线「发言自述卡」与实心「官方裁决/标注徽章」视觉严格区分。
+  - **并排对比（Arena）**：按轮次并排展示各席位回复，方便横向对比不同模型/代理的观点与方案，支持一键跳回群聊定位。
+  - **顶部待处理审批箱**：将待确认任务单草案、超时回合决策（重试/跳过）、崩溃恢复（重放/作废）与披露审批聚合在顶部，无需翻找多标签页即可一键决策。
+- **SSE 实时推送 + 多房间常驻守护进程**：`node room.mjs daemon` 在单个本机回环进程内托管大厅与多个房间，经 `/api/stream` 与 `/lobby/api/stream` 毫秒级推送事件，并在重启后自动恢复活跃回合的房间（登记表存放在房间根目录，不污染任何 `<roomDir>`）。
+- **中英双语全栈支持**：建房支持 `--lang zh-CN|en`（控制 `JOIN.md`、每轮包模板与结构化提示词语言），Web 房间与大厅右上角支持一键实时切换「中文 / EN」。
 
 ## 快速开始
 
-需要 Windows 11；命令行和构建桌面应用需要 Node.js ≥ 22（不需要 `npm install`，只用 Node 内置模块）。房间和席位工作目录不要放在 `%LOCALAPPDATA%` 下：从 MSIX 打包应用里起的进程写 AppData 会被重定向，别的 agent 看不到，所以房间会拒绝这类位置。默认根目录 `%USERPROFILE%\room-dev`（`ROOM_DEV_HOME` 可改）。
+环境要求：**Node.js ≥ 22**（无需 `npm install`，仅使用 Node 内置模块）。Windows 上请避免将房间与席位工作目录放在 `%LOCALAPPDATA%` 下；默认根目录为 `%USERPROFILE%\room-dev`（可用 `ROOM_DEV_HOME` 修改）。
 
-自检（在仓库目录 `<repo>` 里）：
+```bash
+# 1. 运行端到端与全部单元测试
+node test/e2e.mjs
+node --test "test/**/*.test.mjs"
 
-```bat
-node test\e2e.mjs
-node --test "test\**\*.test.mjs"
+# 2. 启动常驻多房间守护进程并在浏览器打开大厅（推荐）
+node room.mjs daemon --open
+
+# 查看守护进程状态
+node room.mjs daemon status
+
+# 或启动单次大厅（也是桌面外壳 圆桌.exe 的后端）
+node room.mjs lobby --open
 ```
 
-**桌面应用。** 只用本机已有的文件构建，不下载任何东西：
+命令行建房与更多参数说明见 [`docs/DEVELOPER.md`](docs/DEVELOPER.md)。
 
-```bat
-npm run app
-```
+## 已验证 / 未验证边界
 
-需要一个 Electron 官方 Windows x64 zip（`--electron-zip`、`ROOM_ELECTRON_ZIP`，或 `%LOCALAPPDATA%\electron\Cache\` 下 npm 留下的缓存），图标可选用 rcedit 写入。之后双击 `dist\out\圆桌\圆桌.exe`。
+详见 [`docs/SUPPORT-MATRIX.md`](docs/SUPPORT-MATRIX.md)：
 
-**启动器。** 应用主窗口就是圆桌启动器（开发者也可以用 `node room.mjs lobby --open` 在浏览器里打开）。选预设建房（默认 A = Codex 主力兼审方，B = Claude Code 执行者），给每个席位一个工作文件夹，把每个席位的入席句子发给对应的 agent，打开房间界面，写任务并开始。
-
-**命令行。** 不用启动器时，同样的流程见上文英文部分的命令块；全部命令、预设与参数见 [`docs/DEVELOPER.md`](docs/DEVELOPER.md)。
-
-## 已验证 / 未验证
-
-截至 2026-10-04，摘自 [`docs/SUPPORT-MATRIX.md`](docs/SUPPORT-MATRIX.md)（每格一条证据脚注；单元测试通过不算已验证）。
-
-- **在作者的 Windows 11 机器上已验证：** 脚本席位端到端（顺序、文件式传输、等待、完成、作废）；一种真实席位：由 `codex exec` 起、与房间同在一个包上下文的 Codex 线程，走完三个回合的 wait → 读包 → 交卷 → TURN_OVER，审计器在它的 rollout 里找到了包；内置 Pi key 的 DPAPI 保存；桌面应用的自检模式（启动、启动器、测试房间、房间窗口、正常退出、只开一份）。
-- **未验证：** Codex Desktop 交互线程、Codex CLI、作为独立会话的 Claude Code、OpenCode、Gemini CLI、Kimi、DSH、用户自己的 Pi；内置 Pi 席位的回合；对空闲 Codex Desktop 线程的唤醒推送；真实 agent 上的治理层（冻结、stale、verdict、披露、条目表，目前只在单元测试与脚本席位端到端里跑过）；真实 agent 上审查回合的写操作审计；从开始菜单打开的 agent 在默认位置的房间里入席；应用里的对话框与右键菜单的实际点击；没有 Node 的机器上用应用自带运行时入席；干净机器上的分发。
-
-## 文档
-
-- [`docs/DEVELOPER.md`](docs/DEVELOPER.md)：开发者说明（构建、命令、目录、测试）
-- [`docs/README-public.md`](docs/README-public.md)：产品定义、不干扰契约与测法、首个公开承诺
-- [`docs/SUPPORT-MATRIX.md`](docs/SUPPORT-MATRIX.md)：支持矩阵
-- [`docs/DESIGN.md`](docs/DESIGN.md)、[`docs/INTERFACES.md`](docs/INTERFACES.md)：设计与模块契约
-- [`docs/DEMO.md`](docs/DEMO.md)：两个逐步演示脚本
-- [`docs/POSITIONING.md`](docs/POSITIONING.md)：定位与相关工作
-- [`integrations/pi-desktop-plugin/README.zh-CN.md`](integrations/pi-desktop-plugin/README.zh-CN.md)：PI-Desktop 插件，只用上游公开的插件接口在 PI-Desktop 里运行房间（开发版，只在假宿主上测过）
-
-## 第三方软件
-
-源码树里没有第三方代码：room-dev 只用 Node.js 内置模块。唯一附带第三方软件的是 `dist/build-app.mjs` 构建的桌面应用：它原样带上你提供的 Electron 官方 Windows x64 运行时（Electron，MIT；Chromium 及其依赖，多种许可；Electron 内置的 Node.js，MIT 及其依赖的许可），只把 `electron.exe` 改名并设置图标。它们的许可文件（`LICENSE`、`LICENSES.chromium.html`）留在构建出的文件夹里、`圆桌.exe` 旁边，构建时还在那里写一份列出它们的 `THIRD-PARTY.md`。可选的内置 Pi 席位只在你自己安装 `@earendil-works/pi-coding-agent` 时使用，不随包附带。
+- **已验证**：脚本席位完整端到端（`test/e2e.mjs` 79/79）；全套单元与集成测试（治理、审计 `writes`/`unknownCommands`、SSE 实时流、多房间守护进程恢复、双语协议模板、伪造标记隔离与 XSS 负向用例）；Windows DPAPI 密钥存储；`codex exec` 真实多轮入席与审计；作者 Windows 11 本机真实多代理讨论实测（Antigravity / Claude Code / Codex CLI）；真实浏览器渲染与交互烟测（群聊、Arena 并排对比、审批箱、实时中英切换、SSE 连接）。
+- **未验证**：Claude Code 多小时后台等待的真实空闲成本；Codex Desktop 图形界面空闲线程的唤醒推送；真实 agent 独立跑完整套治理链路（产物冻结、stale、verdict、快照披露、条目表）；真实外部 agent 跨守护进程重启自动重连；干净 Windows/macOS/Linux 机器上的独立分发。
 
 ## 许可
 

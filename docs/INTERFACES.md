@@ -8,7 +8,7 @@
 
 硬规则（来自方案 §1.6 不干扰契约，违反即 bug）：
 1. 房间服务只写房间目录与快照副本；席位命令只写本席位发件箱；所有写入经 `lib/guard.mjs`。
-2. 房间不起、不杀、不附着任何用户 agent 进程；唯一外向动作是对登记线程的唤醒推送与内置 Pi 自己的进程。
+2. 房间服务不起、不杀、不附着任何用户 agent 进程；房间服务的唯一外向动作是对登记线程的唤醒推送与内置 Pi 自己的进程（`node room.mjs drive` 是席位这一侧的可选客户端驱动，由用户在房间服务之外自行启动，只经席位发件箱通信，绝不被 `serve` 加载）。
 3. 任何子进程（唤醒、披露执行、验收命令、Pi worker）都经 `lib/spawn.mjs`，环境只含白名单变量。
 4. 不对席位的真实目录调用 git；快照副本里 `git init` 或 `GIT_CEILING_DIRECTORIES`。
 5. 读 agent 原生日志只读、流式、读完即关、范围限登记的会话。
@@ -174,10 +174,12 @@ assign --file <draft.md>         DRAFTED（草案格式：每行 `- <seatId>: <�
 文本标记备路径（在 submit 的正文里）：`<<ROOM:VERDICT pass artifact=sha>>`、`<<ROOM:DISCLOSE argv=[...]>>`、`<<ROOM:POINT seq=N>>…`、`<<ROOM:QUOTE seq=N>>…<<ROOM:END>>`、`<<ROOM:MARK item=id status=accepted>>`、`<<ROOM:MISQUOTED seq=N>>`、`<<ROOM:ASSIGN>>…<<ROOM:END>>`、`<<ROOM:PASS>>`。处理顺序见方案 §4.5：先剔除定界块与引用块内的标记；取本回合最后一个；冲突/缺失/变形 → malformed → 追问一次 → verdict 记 none，绝不默认 pass。
 结构化提交也走发件箱：`<submissionId>.json` 的 `meta.kind` 区分，服务回执同路径。
 
+可选席位侧驱动（`lib/driver.mjs`，入口 `node room.mjs drive`）：由用户在房间服务之外自行启动，不算服务端动作，绝不导入 `lib/service.mjs`、绝不写 `<roomDir>`。当前仅支持 `--runner codex-cli`（默认），且 `--model <id>` 与 `--effort <level>` 为必填参数（缺一即拒绝运行），并拒绝任何跳过权限或沙箱确认的参数；每轮子进程经 `lib/spawn.mjs` 启动，交卷经本席位 guard 写入 `<seat.cwd>/.room-outbox/<seatId>/` 并先检查 `openAttemptFor` 保证幂等不重复提交。
+
 ## 5a. 席位的交卷面（surface）
 
 交卷面决定包、散会声明、malformed 追问和席位命令的回执怎样写出席位的动作（`lib/surface.mjs`）；它不改权限、attempt 规则和发件箱协议。三种，`seatSurface(seat)` 按这个顺序判定：
-1. `hosted`：`seat.hosted` 有值（内置 Pi、宿主通道，包括 PI-Desktop 插件的 `pi-complete`）。从不存储。
+1. `hosted`：`seat.hosted` 有值（内置 Pi、宿主通道）。从不存储。
 2. `tool`：`seat.surface = {"kind":"tool","tool":"<工具名>"}` 且工具名合法（`^[A-Za-z][A-Za-z0-9_.-]{0,127}$`）。宿主的一个对话，只经这个宿主工具行事。
 3. `cli`：其余一切（没有这个字段、字段坏了、手写的 `{"kind":"cli"}`）。默认值，什么也不存；席位运行 §5 的命令（JOIN.md），`lib/templates/*.md` 就是为它写的。
 
@@ -194,7 +196,7 @@ agent pi-user 本身不决定交卷面：不带 `--surface` 的 pi-user 席位�
 
 托管席位：没有命令，也没有提交工具；它这一次回复的全文就是本回合的发言，结构化记录只能写成回复正文里原样的 ASCII 标记（上面的文本标记备路径）。它没有声明产物的通道，Work 回合记 no_artifact。前言里「你声明的权限档位：…；等待方式：…」那一行也换掉：托管席位的权限由房间按 `seat.hosted.tier` 定，它也不等待。
 
-PI-Desktop 插件的 Room 工具（模型看到 plugin_<插件 id>_Room）就是这样一个工具：插件给它的 `pi` 席位登记 `--surface tool:plugin_io_github_kennymcsimpson_governed_roundtable_Room`，`complete` 席位是托管席位。
+宿主插件或 MCP 工具（例如模型看到的 `room_tool` / `plugin_<id>_Room`）只需按上述契约实现单一工具，给对应对话席位登记 `--surface tool:<工具名>` 即可。
 
 ## 6. 包与清单（lib/packet.mjs）
 
@@ -294,12 +296,12 @@ export function createPiSeat({ tier, apiKey, model, cwd, sessionDir, onEvent }) 
 
 ## 15. 嵌入接口（lib/api.mjs，给宿主进程用）
 
-宿主（PI-Desktop 的 Electron 主进程、测试、脚本）在自己的进程里跑房间时用它；类型在 `lib/api.d.mts`。它不打印、不退出进程，每个命令返回 `{code, status, fields, lines, error?}`：`status` 是第一行的状态词（§5 的契约），`fields` 是那一行的 `key=value`。命令参数被转成和用户在命令行敲的完全相同的 argv，再交给 `room.mjs` 调用的同一个函数，所以嵌入调用和命令行调用走同一条代码路径。
+宿主（桌面应用的 Electron 主进程、测试、脚本）在自己的进程里跑房间时用它；类型在 `lib/api.d.mts`。它不打印、不退出进程，每个命令返回 `{code, status, fields, lines, error?}`：`status` 是第一行的状态词（§5 的契约），`fields` 是那一行的 `key=value`。命令参数被转成和用户在命令行敲的完全相同的 argv，再交给 `room.mjs` 调用的同一个函数，所以嵌入调用和命令行调用走同一条代码路径。
 
 - `createRoom(params)`、`addSeat(params)`、`admin(sub, params, positional)`：§3/§8 的管理命令；`addSeat` 要在 `openRoom` 之前调用（服务运行时不能加席位，同 CLI）。
-- `openRoom({roomDir, tickMs, port, hostedProviders, piApiKey, log})`：在本进程里起 `createRoomService`，定时 tick，维护 `service.lock` 心跳，可选起回环 UI；返回 `{view(), events(since), admin(cmd, params), url, adminToken, close()}`。`admin()` 直接进运行中服务的处理函数，和 admin-queue 记录等价。
+- `openRoom({roomDir, tickMs, port, hostedProviders, piApiKey, log})`：在本进程里起 `createRoomService`，定时 tick，维护 `service.lock` 心跳，可选起回环 UI；返回 `{view(), events(since), admin(cmd, params), subscribe(fn), url, adminToken, close()}`。`admin()` 直接进运行中服务的处理函数，和 admin-queue 记录等价。
 - `seatClient({roomDir, seatId})`：一个席位的全部命令（`wait/submit/status/leave/pass/point/quote/mark/misquoted/verdict/disclose/assign/artifacts`）。`submit({text})` 把发言写进该席位自己发件箱的 `drafts/` 再提交，席位仍然只写自己的发件箱。
-- 托管通道席位：`addSeat({hosted: 'lane:<名字>[:<档位>]'})` 建席，`openRoom({hostedProviders: {lane: (ctx) => handle}})` 注入运行它的工厂；`handle` 与 `createPiSeat` 的返回同形（`prompt(packetText) -> {text, stopReason, usage, failureClass?}`、`cancel()`、`busy`）。命令行起的服务没有通道，轮到它时记 `seat_failed`，错误码 `HOSTED_PROVIDER_MISSING`。PI-Desktop 用它把 v-subagent 通道（claude-code、anyrouter、webchat…）作为托管席位坐进受治理的房间。托管席位可带模型：`addSeat({hosted: 'lane:anyrouter', model: 'gpt-6-astra'})`（CLI `--model`），记在 `seat.hosted.model`，工厂拿到的 `ctx.seat.hosted.model` 就是它，宿主据此调用通道；外部 agent 不接受 `--model`（模型在它自己那里选）。
+- 托管通道席位：`addSeat({hosted: 'lane:<名字>[:<档位>]'})` 建席，`openRoom({hostedProviders: {lane: (ctx) => handle}})` 注入运行它的工厂；`handle` 与 `createPiSeat` 的返回同形（`prompt(packetText) -> {text, stopReason, usage, failureClass?}`、`cancel()`、`busy`）。命令行起的服务没有通道，轮到它时记 `seat_failed`，错误码 `HOSTED_PROVIDER_MISSING`。嵌入宿主可用它把自有通道（claude-code、custom-api、webchat 等）作为托管席位坐进受治理的房间。托管席位可带模型：`addSeat({hosted: 'lane:custom-provider', model: 'example-model'})`（CLI `--model`），记在 `seat.hosted.model`，工厂拿到的 `ctx.seat.hosted.model` 就是它，宿主据此调用通道；外部 agent 不接受 `--model`（模型在它自己那里选）。
 - 宿主自己的对话席位：`addSeat({agent: 'pi-user', wait, surface: 'tool:<模型看到的工具名>'})`，它的包只写这个工具的调用（§5a）；不带 `surface` 的 pi-user 席位按命令行席位写。
 - 宿主唤醒：`addSeat({'wake-thread': <会话 id>, 'wake-kind': 'pi-session'})` 登记，`openRoom({wakers: {'pi-session': ({seat, attemptId, thread, text}) => ({ok, detail})}})` 注入投递方式。上限、不重复推送、`wake_pushed` 事件与 Codex queue 完全相同；文案固定为「[ROOM authority=none] 轮到席位 X，请取本回合的包」，不含房间内容。没注入时该席位记为需用户唤醒。
 - 服务锁记录写入者自己的进程名（`image`），宿主用自带运行时（`ELECTRON_RUN_AS_NODE`）跑服务时，命令行再起服务不会把它误判为失效而接管。

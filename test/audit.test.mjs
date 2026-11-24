@@ -189,15 +189,15 @@ test('unwrapShellArgv unwraps powershell / pwsh / cmd / bash and marks opaque fo
 
 // ---------- read vs write vs unknown ----------
 
-test('isReadOnlyCommand: allowlisted reads, including chains, rtk proxy and benign redirections', () => {
-  for (const c of ['git status', 'git status && git diff --stat', 'rtk proxy git log -1', 'Get-Content -LiteralPath C:/x.md',
+test('isReadOnlyCommand: allowlisted reads, including chains and benign redirections', () => {
+  for (const c of ['git status', 'git status && git diff --stat', 'git log -1', 'Get-Content -LiteralPath C:/x.md',
     'rg -n "unlink|TODO" src', 'rg foo 2>&1', 'git -C E:/x status', 'ls; dir; Get-ChildItem -Recurse src',
     'type README.md', 'cat a | rg x | wc -l', 'Get-ChildItem | Select-Object Name', '']) {
     const r = isReadOnlyCommand(c);
     assert.equal(r.readOnly, true, c);
     assert.equal(r.write, false, c);
   }
-  assert.equal(isReadOnlyCommand('rtk proxy git status').class, 'read');
+  assert.equal(isReadOnlyCommand('wrap run git status', { wrappers: [['wrap', 'run']] }).class, 'read');
   assert.equal(isReadOnlyCommand('git status && git diff').reason, 'allowlist');
 });
 
@@ -221,7 +221,7 @@ test('isReadOnlyCommand: write commands, git mutations and file redirections are
   const cases = [
     ['Set-Content -Path E:\\x\\s.txt -Value 1', ['E:\\x\\s.txt']], ['Get-Content a | Set-Content b', ['b']],
     ['type a & del b', ['b']], ['git status && rm -rf build', ['build']], ['cat a.txt > b.txt', ['b.txt']],
-    ['rtk proxy Remove-Item old.txt', ['old.txt']], ['git commit -m x', []], ['git -C E:/r add .', []],
+    ['Remove-Item old.txt', ['old.txt']], ['git commit -m x', []], ['git -C E:/r add .', []],
     ['sed -i s/a/b/ f.txt', []], ['cmd /c "type a & del b"', ['b']], ['powershell -Command "New-Item -ItemType File x.md"', ['x.md']],
     ['ls 2> err.txt', ['err.txt']],
   ];
@@ -237,12 +237,13 @@ test('isReadOnlyCommand: write commands, git mutations and file redirections are
 });
 
 test("isReadOnlyCommand: the room's own command is excluded (roomOnly), alone or wrapped; room + read is a read", () => {
-  for (const c of ['node D:/tools/room-dev/room.mjs wait --seat X', 'rtk proxy node D:/tools/room-dev/room.mjs submit --file a.md',
+  for (const c of ['node D:/tools/room-dev/room.mjs wait --seat X',
     'C:\\rooms\\fx\\seats\\A\\room.cmd wait', 'node room.mjs wait; node room.mjs status']) {
     const r = isReadOnlyCommand(c);
     assert.equal(r.roomOnly, true, c);
     assert.equal(r.readOnly, true, c);
   }
+  assert.equal(isReadOnlyCommand('wrap run node D:/tools/room-dev/room.mjs submit --file a.md', { wrappers: [['wrap', 'run']] }).roomOnly, true);
   const mixed = isReadOnlyCommand('node room.mjs wait; rg x');
   assert.equal(mixed.class, 'read');
   assert.equal(mixed.roomOnly, false);
@@ -254,20 +255,21 @@ test('isReadOnlyCommand honours a custom allowlist and wrapper list', () => {
   assert.equal(isReadOnlyCommand('npm test', { allowlist: [['npm', 'test']] }).class, 'read');
   assert.equal(isReadOnlyCommand('git status', { allowlist: [['npm', 'test']] }).class, 'unknown');
   assert.equal(isReadOnlyCommand('sudo git status', { wrappers: [['sudo']] }).class, 'read');
-  assert.equal(isReadOnlyCommand('rtk proxy git status', { wrappers: [] }).class, 'unknown');
+  assert.equal(isReadOnlyCommand('wrap run git status', { wrappers: [['wrap', 'run']] }).class, 'read');
+  assert.equal(isReadOnlyCommand('wrap run git status', { wrappers: [] }).class, 'unknown');
   assert.ok(READ_ONLY_ALLOWLIST.some((p) => p.join(' ') === 'git diff'));
-  assert.deepEqual(COMMAND_WRAPPERS, [['rtk', 'proxy']]);
+  assert.deepEqual(COMMAND_WRAPPERS, []);
 });
 
-test('isReadOnlyArgv handles recorded argv: shell wrappers, rtk proxy around a shell, room commands, plain argv', () => {
+test('isReadOnlyArgv handles recorded argv: shell wrappers, custom wrappers around a shell, room commands, plain argv', () => {
   const ps = 'C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
   let r = isReadOnlyArgv([ps, '-Command', "rg -n \"room|seat\" 'E:/x/MEMORY.md'"]);
   assert.equal(r.class, 'read');
   assert.equal(r.command, "rg -n \"room|seat\" 'E:/x/MEMORY.md'");
-  r = isReadOnlyArgv([ps, '-Command', 'rtk proxy node D:/tools/room-dev/room.mjs wait --seat C:/r/seats/A']);
+  r = isReadOnlyArgv([ps, '-Command', 'wrap run node D:/tools/room-dev/room.mjs wait --seat C:/r/seats/A'], { wrappers: [['wrap', 'run']] });
   assert.equal(r.roomOnly, true);
-  assert.equal(isReadOnlyArgv(['rtk', 'proxy', 'powershell', '-Command', 'git status']).class, 'read');
-  assert.equal(isReadOnlyArgv(['rtk', 'proxy', 'powershell', '-Command', 'Remove-Item x']).class, 'write');
+  assert.equal(isReadOnlyArgv(['wrap', 'run', 'powershell', '-Command', 'git status'], { wrappers: [['wrap', 'run']] }).class, 'read');
+  assert.equal(isReadOnlyArgv(['wrap', 'run', 'powershell', '-Command', 'Remove-Item x'], { wrappers: [['wrap', 'run']] }).class, 'write');
   assert.equal(isReadOnlyArgv(['cmd', '/c', 'npm test']).class, 'unknown');
   assert.equal(isReadOnlyArgv(['git', 'log', '-1']).class, 'read');
   assert.equal(isReadOnlyArgv(['git', 'log', '-1']).command, 'git log -1');
@@ -316,7 +318,7 @@ test('classifyWrites on every Codex line shape in the parent fixture', () => {
   assert.equal(by(0).kind, 'other'); // session_meta
   assert.equal(by(2).kind, 'other'); // custom exec: room wait (excluded)
   assert.equal(by(2).items[0].source, 'custom_tool_call/exec/room');
-  assert.equal(by(3).kind, 'other'); // CommandExecution: room wait via powershell + rtk proxy
+  assert.equal(by(3).kind, 'other'); // CommandExecution: room wait via powershell
   assert.equal(by(3).items[0].source, 'CommandExecution/room');
   const r5 = by(5); // custom exec with two literal reads
   assert.equal(r5.kind, 'read');
@@ -720,21 +722,30 @@ test('auditPacket (claude): tool_result header + Read call -> present; header on
 
 // ---------- attempt observation (§5.3, §8.3, #9) ----------
 
-test('auditAttempt (codex) attempt 1: reads and unknown commands only -> not tainted, delivery present_in_native', async () => {
+test('auditAttempt (codex) attempt 1: unknown commands outside allowlist mark tainted, delivery present_in_native', async () => {
   const r = await auditAttempt({ seat: { seatId: 'A', audit: { kind: 'codex' } }, attemptId: 'a1-1-aa11bb', files: CODEX_FILES, packetId: P1, packetPath: pkOs(P1), turnWindow: W1 });
   assert.equal(r.type, 'audit_observed');
   assert.equal(r.seatId, 'A');
   assert.equal(r.status, 'present_in_native');
   assert.deepEqual(r.writes, []);
-  assert.equal(r.tainted, false);
-  assert.equal(r.annotation, 'none');
+  assert.equal(r.tainted, true);
+  assert.equal(r.annotation, 'tainted');
   assert.deepEqual(r.unknownCommands.map((u) => u.reason).sort(), ['cmd is not a literal', 'not in allowlist: npm']);
   assert.deepEqual(r.reads.map((x) => x.command).sort(), [
     `Get-Content -LiteralPath '${pk(P1)}'`, 'Get-ChildItem -Recurse src', 'git status && git diff --stat', 'rg -n "unlink|TODO" src',
   ].sort());
   assert.ok(r.others['custom_tool_call/exec/room'] >= 1 && r.others['CommandExecution/room'] >= 1, 'room commands are excluded, not reads');
   assert.match(r.note, /未观测到写操作/);
+  assert.match(r.note, /tainted/);
   assert.deepEqual(r.window, W1);
+
+  // Clean read-only window (no writes, no unknown commands) -> not tainted, annotation none.
+  const cleanWin = { fromTs: '2026-10-01T10:00:00.000Z', toTs: '2026-10-01T10:00:26.000Z' };
+  const clean = await auditAttempt({ seat: { seatId: 'A', audit: { kind: 'codex' } }, attemptId: 'a1-0-clean', files: [F_PARENT], packetId: P1, packetPath: pkOs(P1), turnWindow: cleanWin });
+  assert.deepEqual(clean.writes, []);
+  assert.deepEqual(clean.unknownCommands, []);
+  assert.equal(clean.tainted, false);
+  assert.equal(clean.annotation, 'none');
 });
 
 test('auditAttempt (codex) attempt 2: writes across parent, child and grandchild -> tainted; copies and inherited prefix counted once / never', async () => {
@@ -771,14 +782,15 @@ test('auditAttempt without a window sees both attempts; a custom allowlist turns
   assert.deepEqual(custom.unknownCommands.map((u) => u.reason), ['cmd is not a literal']);
 });
 
-test('auditAttempt (claude): attempt 1 clean-but-unknown, attempt 2 tainted by main session, subagent and workflow agent', async () => {
+test('auditAttempt (claude): attempt 1 tainted by unknown command, attempt 2 tainted by writes across main/subagent/workflow', async () => {
   const sub = path.join(CLAUDE_FIX, S1);
   const files = [path.join(CLAUDE_FIX, `${S1}.jsonl`), path.join(sub, 'subagents', 'agent-a0001.jsonl'),
     path.join(sub, 'subagents', 'workflows', 'wf_0001', 'agent-a0002.jsonl'), path.join(sub, 'tool-results', 'bwait0002.txt')];
   const seat = { seatId: 'B', audit: { kind: 'claude' } };
   const a1 = await auditAttempt({ seat, attemptId: 'b1-1-1a2b3c', files, packetId: Q1, packetPath: pkOs(Q1), turnWindow: W1 });
   assert.equal(a1.status, 'present_in_native');
-  assert.equal(a1.tainted, false);
+  assert.equal(a1.tainted, true);
+  assert.equal(a1.annotation, 'tainted');
   assert.deepEqual(a1.unknownCommands.map((u) => u.command), ['npm test']);
   assert.deepEqual(a1.reads.map((x) => x.source).sort(), ['tool_use/Bash', 'tool_use/Grep', 'tool_use/Read']);
   const a2 = await auditAttempt({ seat, attemptId: 'b1-2-4d5e6f', files, packetId: Q2, packetPath: pkOs(Q2), turnWindow: W2 });
@@ -963,6 +975,7 @@ test('describeObservation never says 只读 or 无写操作, in any branch', () 
   assert.match(texts[0], /未观测到写操作/);
   assert.match(texts[0], /未观测到不等于没有发生/);
   assert.match(texts[0], /记 unknown，不记 clean/);
+  assert.match(texts[0], /tainted/);
   assert.match(texts[1], /观测到 3 处写操作（a\.md）/);
   assert.match(texts[2], /audit_failed/);
 });
@@ -1025,7 +1038,7 @@ test('cmdAudit prints delivery and observation per packet for a registered seat 
     assert.match(outText, /^registered_files=4 /m);
     assert.match(outText, new RegExp(`^PACKET ${P1} -> present_in_native`, 'm'));
     assert.match(outText, new RegExp(`^PACKET ${P2} -> header_only`, 'm'));
-    assert.match(outText, /^OBSERVED attempt=a1-1-aa11bb status=present_in_native writes=0 unknown=2 reads=4 tainted=false annotation=none$/m);
+    assert.match(outText, /^OBSERVED attempt=a1-1-aa11bb status=present_in_native writes=0 unknown=2 reads=4 tainted=true annotation=tainted$/m);
     assert.match(outText, /^OBSERVED attempt=a1-2-cc22dd status=header_only writes=5 unknown=0 reads=2 tainted=true annotation=tainted$/m);
     assert.match(outText, /inherited_skipped=5/);
     for (const w of FORBIDDEN_WORDING) assert.ok(!outText.includes(w));

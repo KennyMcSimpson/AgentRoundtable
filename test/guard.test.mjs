@@ -95,7 +95,9 @@ test('atomicWrite survives a concurrent reader process (Windows share modes) and
     let writes = 0;
     const thrown = [];
     const end = Date.now() + 2000;
-    while (Date.now() < end) {
+    const minWrites = 5;
+    const hardEnd = Date.now() + 8000;
+    while ((Date.now() < end || writes < minWrites) && Date.now() < hardEnd) {
       try { g.atomicWrite(target, JSON.stringify({ seq: ++writes, pad: 'x'.repeat(2000) })); } catch (e) { thrown.push(e.code || e.message); }
       await sleep(5);
     }
@@ -106,8 +108,25 @@ test('atomicWrite survives a concurrent reader process (Windows share modes) and
     assert.deepEqual(thrown, [], `atomicWrite threw: ${thrown.slice(0, 5).join(', ')}`);
     // A sanity floor only (each contended write may back off for a while under a loaded test run);
     // the property under test is "no throw, no tmp leftovers".
-    assert.ok(writes >= 5, `writes=${writes}`);
+    assert.ok(writes >= minWrites, `writes=${writes}`);
     assert.equal(JSON.parse(fs.readFileSync(target, 'utf8')).seq, writes);
     assert.deepEqual(tmpLeftovers(dir), []);
+  } finally { await rmTree(root); }
+});
+
+test('guard writeFile and atomicWrite apply POSIX mode (including overwriting existing 0o644 files)', { skip: process.platform === 'win32' }, async () => {
+  const root = tempRoot();
+  try {
+    const dir = path.join(root, 'sec');
+    fs.mkdirSync(dir, { recursive: true });
+    const g = createGuard({ allowed: [dir], logPath: path.join(dir, 'write-log.jsonl'), who: 'admin' });
+    const f1 = path.join(dir, 'token');
+    fs.writeFileSync(f1, 'old', { mode: 0o644 });
+    fs.chmodSync(f1, 0o644);
+    g.writeFile(f1, 'new-secret', { mode: 0o600 });
+    assert.equal(fs.statSync(f1).mode & 0o777, 0o600);
+    const f2 = path.join(dir, 'atomic-token');
+    g.atomicWrite(f2, 'secret-2', { mode: 0o600 });
+    assert.equal(fs.statSync(f2).mode & 0o777, 0o600);
   } finally { await rmTree(root); }
 });
