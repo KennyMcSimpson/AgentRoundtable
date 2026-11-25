@@ -1,7 +1,7 @@
 {
   "name": "room-dev-app",
   "productName": "AgentRoundtable",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Desktop shell for AgentRoundtable — governed multi-agent roundtable.",
   "private": true,
   "type": "module",

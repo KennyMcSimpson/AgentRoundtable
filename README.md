@@ -108,7 +108,7 @@ flowchart LR
     CLI["room.mjs CLI &amp; Multi-Room Daemon"]
   end
 
-  A1 & A2 & A3 -- "Read packets/*.md<br/>Write own .room-outbox/&lt;seat&gt;/" --> Core
+  A1 & A2 & A3 -- "Read packets/*.md<br/>Write own .room-outbox/{seat}/" --> Core
   Core -- "Scoped TURN packets<br/>nonce-delimited authority=none" --> Agents
   Core -- "SSE /api/stream &amp; /api/state" --> UI
   UI & CLI -- "POST /api/admin<br/>(token in JSON body only)" --> Core
@@ -213,7 +213,7 @@ Exact verification boundaries are tracked transparently in [`docs/SUPPORT-MATRIX
 
 | Document | Description |
 |---|---|
-| [`CHANGELOG.md`](CHANGELOG.md) | Release history and `v0.2.0` highlights |
+| [`CHANGELOG.md`](CHANGELOG.md) | Release history and `v0.2.1` highlights |
 | [`docs/DESIGN.md`](docs/DESIGN.md) | Architecture, asymmetric transport, governance pillars, and code map |
 | [`docs/INTERFACES.md`](docs/INTERFACES.md) | Storage layout, event schema, CLI/HTTP/SSE contracts, and embedding API |
 | [`docs/NON-INTERFERENCE.md`](docs/NON-INTERFERENCE.md) | 9-clause non-interference contract, measurement methods, and scope non-claims |

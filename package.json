@@ -1,6 +1,6 @@
 {
   "name": "agent-roundtable",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "license": "MIT",
   "description": "Governed multi-agent roundtable for the coding agents you already run: deterministic turn moderation, Work/Meet/Summary governance, artifact freeze & recompute, snapshot-isolated disclosure, native-log audit, group-chat & Arena UI, SSE multi-room daemon, zero runtime dependencies.",
   "type": "module",

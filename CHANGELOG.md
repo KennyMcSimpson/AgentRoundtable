@@ -2,6 +2,25 @@
 
 All notable changes to `AgentRoundtable` (`room-dev`) are documented here.
 
+## [0.2.1] - 2026-11-25
+
+### Changed & Polished
+- **100% Pure-English Open-Source Edition**:
+  - Consolidated all 188 tracked files to clean, idiomatic English (0 CJK characters, 0 UTF-8 BOM, `PUBLIC_SCAN_OK`), promoted English packet templates directly to `lib/templates/*.md`, added [`docs/NON-INTERFERENCE.md`](docs/NON-INTERFERENCE.md), and renamed the optional Windows desktop shell to `AgentRoundtable.exe`.
+- **Studio Web UI Redesign & UX Decluttering**:
+  - Redesigned the Room Workspace (`ui/index.html`, `ui/app.css`, `ui/rt-chat.css`, `ui/app.js`, `ui/rt-chat.js`) and Multi-Room Daemon Lobby (`ui/lobby.html`, `ui/lobby.css`, `ui/lobby.js`) in a calm Linear / Claude Desktop aesthetic with adaptive dark & light themes (`#btn-theme`, zero `localStorage`, zero `innerHTML`).
+  - Eliminated nested box-in-box bubble clutter with slim left-bar inline quotes, borderless dashed-left speaker claims, hairline authoritative footers, collapsible sidebar Diagnostics, single-line collapsible Objective bar, and collapsible Round Controls.
+  - Auto-folded completed directives (`Assignment Draft · Confirmed`, recorded `pass`/`disclose` claims, executed/denied disclosures, resolved points) into compact 1-line summaries while keeping pending directives expanded, and adapted the top phase stepper (`#hdr-stepper`) to hide `Assign`/`Work` in discussion-only rooms.
+- **Flagship README & Visual Assets**:
+  - Added adaptive dark/light vector SVG hero banners (`docs/assets/hero-{dark,light}.svg`), 16:10 dark/light Studio UI screenshots across Group Chat, Arena Compare, and Multi-Room Lobby, Mermaid architecture diagram, and governance matrix.
+
+### Fixed
+- **Cross-Platform 3-OS CI All Green (`windows-latest`, `ubuntu-latest`, `macos-latest`)**:
+  - Exported `WAKE_ENV_KEYS` from `lib/service.mjs` for POSIX/Windows wake env checks (`test/service.test.mjs`).
+  - Exported `IMPLICIT_DARWIN_VARS` (`__CF_USER_TEXT_ENCODING`) from `lib/spawn.mjs` for macOS environment isolation tests (`test/spawn.test.mjs`, `contract/env.mjs`).
+  - Updated `test/app.test.mjs` to assert `room.sh` on POSIX and `room.cmd` on Windows.
+  - Upgraded `.github/workflows/ci.yml` to `actions/checkout@v7` and `actions/setup-node@v7` (native Node 24 runner support).
+
 ## [0.2.0] - 2026-11-24
 
 ### Added
