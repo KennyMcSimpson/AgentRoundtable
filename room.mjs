@@ -6,7 +6,7 @@
 //
 //   Seat (run by an agent; first stdout word is the result; exit 0 / REJECTED 2 / PENDING, NO_SERVICE 8 / error 9):
 //     node room.mjs wait      --seat <seatDir> [--timeout S] [--once]
-//     node room.mjs submit    --seat <seatDir> --attempt <id> --file <path>
+//     node room.mjs submit    --seat <seatDir> --attempt <id> --file <path|->
 //     node room.mjs status    --seat <seatDir> [--log] [--whoami]
 //     node room.mjs leave     --seat <seatDir>
 //     node room.mjs artifacts --seat <seatDir> --attempt <id> --declare <path>... [--baseline none|whole|<sha>] [--exclude <glob>]...
@@ -33,7 +33,7 @@
 //                                   [--wait background|turn_over|manual] [--tier discussion|readonly|workspace|full]
 //                                   [--reviews A,B] [--hosted pi:discussion|pi:exec|pi:reviewer]
 //                                   [--surface cli|tool:<model-visible tool name>]
-//                                   [--wake-thread <codex thread>] [--wake-max n] [--audit codex|claude --thread-id <id> --session-id <id>]
+//                                   [--wake-thread <id|name>] [--wake-kind codex-queue] [--wake-max n] [--audit codex|claude --thread-id <id> --session-id <id>]
 //                                   [--name ..] [--wall s] [--wait-timeout s]
 //     node room.mjs admin set-audit --dir <roomDir> --seat <id> --kind codex|claude [--thread-id <id>] [--session-id <id>]
 //     node room.mjs admin task|say  --dir <roomDir> --text "..." | --file <path>
@@ -69,7 +69,15 @@
 //   Daemon (persistent multi-room host + lobby + SSE + live room auto-resume):
 //     node room.mjs daemon [--port N] [--rooms-root <dir>] [--no-resume] [--lang en] [--open]
 //     node room.mjs daemon status [--rooms-root <dir>]
+//   Doctor (strictly read-only environment, wake-channel & optional room diagnostics):
+//     node room.mjs doctor [--dir <roomDir> | --id <roomId>] [--rooms-root <dir>] [--json]
+//   Demo (zero-setup Studio UI preview with a 5-agent fixture; writes nothing to disk):
+//     node room.mjs demo [--port N] [--no-open] [--fixture <path>]
+//   Version:
+//     node room.mjs --version
 import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseArgs, defaultRoomsRoot } from './lib/common.mjs';
 
 const SEAT_CMDS = new Set(['wait', 'submit', 'status', 'leave', 'artifacts', 'point', 'quote', 'mark', 'verdict', 'disclose', 'pass', 'misquoted', 'assign']);
@@ -157,6 +165,74 @@ async function runDaemon(a) {
   return runLobby(a, { daemon: true });
 }
 
+async function runDemo(a) {
+  const DEMO_FLAGS = new Set(['_', '__argv', 'port', 'no-open', 'fixture']);
+  for (const key of Object.keys(a)) {
+    if (!DEMO_FLAGS.has(key)) {
+      process.stderr.write(`ERROR demo: unknown option --${key}; supported options: --port <N>, --no-open, --fixture <path>\n`);
+      return 9;
+    }
+  }
+  if (Array.isArray(a._) && a._.length > 0) {
+    process.stderr.write(`ERROR demo: unexpected positional argument "${a._[0]}"\n`);
+    return 9;
+  }
+  if (a['no-open'] !== undefined && a['no-open'] !== true) {
+    process.stderr.write(`ERROR demo: --no-open takes no value (got "${a['no-open']}")\n`);
+    return 9;
+  }
+  let port = 0;
+  if (a.port !== undefined) {
+    const rawPort = a.port === true ? '' : String(a.port).trim();
+    port = Number(rawPort);
+    if (!/^\d+$/.test(rawPort) || !Number.isInteger(port) || port < 0 || port > 65535) {
+      process.stderr.write('ERROR --port must be an integer between 0 and 65535\n');
+      return 9;
+    }
+  }
+  let fixturePath;
+  if (a.fixture !== undefined) {
+    if (a.fixture === true || !String(a.fixture).trim()) {
+      process.stderr.write('ERROR --fixture requires a path\n');
+      return 9;
+    }
+    fixturePath = path.resolve(String(a.fixture));
+    let isFile = false;
+    try { isFile = fs.statSync(fixturePath).isFile(); } catch { isFile = false; }
+    if (!isFile) {
+      process.stderr.write(`ERROR fixture file not found: ${fixturePath}\n`);
+      return 9;
+    }
+  }
+  const { createMockServer } = await import('./ui/mock-server.mjs');
+  const srv = await createMockServer({ port, ...(fixturePath ? { fixturePath } : {}) });
+  const fullUrl = `${srv.url}#${srv.token}`;
+  const shouldOpen = a['no-open'] !== true && !process.env.CI && !process.parentPort;
+  process.stdout.write(`AgentRoundtable Studio Demo (read-only fixture, zero disk writes): ${fullUrl}\n`);
+  process.stdout.write(shouldOpen
+    ? 'Opening in your default browser; press Ctrl+C to stop.\n'
+    : 'Open the URL above in your browser; press Ctrl+C to stop.\n');
+  if (shouldOpen) {
+    const { openInBrowser } = await import('./lib/lobby.mjs');
+    openInBrowser(fullUrl).then((r) => {
+      if (r && (r.spawnError || r.timedOut)) process.stdout.write('[demo] could not open browser automatically; copy the URL above.\n');
+    }, () => process.stdout.write('[demo] could not open browser automatically; copy the URL above.\n'));
+  }
+  const signals = ['SIGINT', 'SIGTERM', 'SIGHUP', ...(process.platform === 'win32' ? ['SIGBREAK'] : [])];
+  await new Promise((resolve) => { for (const sig of signals) process.once(sig, resolve); });
+  await srv.close();
+  return 0;
+}
+
+function readPkgVersion() {
+  try {
+    const pkgPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'package.json');
+    return JSON.parse(fs.readFileSync(pkgPath, 'utf8')).version || '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
 function report(e) {
   if (e && e.exitCode !== undefined && e.name === 'CliError') { process.stderr.write(`ERROR ${e.message}\n`); return e.exitCode; }
   process.stderr.write(`ERROR ${e && e.stack ? e.stack : e}\n`);
@@ -168,6 +244,10 @@ async function main() {
     const seat = await import('./lib/seat.mjs');
     seat.scrubEnv(process.env);
     return seat.SEAT_COMMANDS[cmd](args);
+  }
+  if (cmd === '--version' || cmd === '-v' || cmd === 'version') {
+    process.stdout.write(`agent-roundtable ${readPkgVersion()}\n`);
+    return 0;
   }
   switch (cmd) {
     case 'serve': {
@@ -194,10 +274,15 @@ async function main() {
       const { cmdDrive } = await import('./lib/driver.mjs');
       return cmdDrive(args);
     }
+    case 'doctor': {
+      const { cmdDoctor } = await import('./lib/doctor.mjs');
+      return cmdDoctor(args);
+    }
+    case 'demo': return runDemo(args);
     case 'lobby': return runLobby(args);
     case 'daemon': return runDaemon(args);
     default:
-      process.stdout.write(`usage: node room.mjs <${[...SEAT_CMDS].join('|')}|serve|admin|audit|drive|lobby|daemon> ... (see header of room.mjs)\n`);
+      process.stdout.write(`usage: node room.mjs <${[...SEAT_CMDS].join('|')}|serve|admin|audit|drive|doctor|demo|lobby|daemon|--version> ... (see header of room.mjs)\n`);
       return cmd ? 9 : 0;
   }
 }

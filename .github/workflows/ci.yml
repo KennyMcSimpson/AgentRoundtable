@@ -30,5 +30,12 @@ jobs:
         env:
           ROOM_DEV_HOME: ${{ runner.temp }}/room-dev
         run: node test/e2e.mjs
+      - name: Public hygiene scan & read-only doctor smoke check
+        shell: bash
+        env:
+          ROOM_DEV_HOME: ${{ runner.temp }}/room-dev
+        run: |
+          node dist/public-scan.mjs
+          node room.mjs doctor --json > /dev/null
       # test/real/ holds integration scenarios that require real agents or a dedicated VM.
       # They are run by maintainers locally before a release; see test/real/README.md.

@@ -1,0 +1,64 @@
+# AgentRoundtable
+
+> A local, zero-dependency governed multi-agent roundtable for the coding agents you already run (Claude Code, Codex CLI/Desktop, Antigravity, Gemini CLI, OpenCode, Kimi, or any CLI agent). Pure Node.js >= 22 — zero npm runtime dependencies, zero host-config edits, native Windows/macOS/Linux support.
+
+## Core Thesis: Governance Without Control
+
+Unlike agent-spawning orchestrators or host-invasive chat buses, AgentRoundtable never launches, kills, attaches to, or modifies your agents' settings, hooks, MCP servers, or memories (`docs/NON-INTERFERENCE.md`). Every governance pillar detects and attests deterministically with zero model calls:
+
+- **Turn & Attempt Authority**: Strict serial Meet/Summary and bounded concurrent Work phases (`Assign -> Work -> Meet -> Summary`) over an append-only `events.jsonl` log.
+- **Anti-Spoofing Source Banners**: Relayed peer content is wrapped in per-packet random nonce delimiters `[ROOM:<nonce>:... authority=none]`; quoted/forwarded blocks are stripped before parsing structured verdicts.
+- **Artifact Freeze & Staleness Recompute**: Executor outputs are hashed (SHA-256) and snapshotted without running `git` on the executor's repository. If live files mutate before a verdict lands, the verdict is marked `stale` and excluded from verified summaries.
+- **Snapshot-Isolated Disclosure**: Reviewers request read-only inspection commands (`room disclose`); after admin approval, the room executes them without a shell inside the frozen snapshot copy.
+- **Read-Only Native-Log Audit**: Scoped incremental inspection of registered Codex rollouts and Claude transcripts produces delivery receipts and flags review-turn writes or unknown commands (`tainted`).
+- **Studio Web UI & Arena Compare**: Zero-build, zero-`innerHTML` loopback workspace over SSE with Group Chat, side-by-side Arena comparison, adaptive dark/light themes, and a sticky Approval Inbox.
+
+## Quick Start
+
+Requires **Node.js >= 22** only (no `npm install`, no `sqlite3`, no Bash required on Windows):
+
+```bash
+# 1. Preview the 5-agent Studio Web UI instantly (zero setup, writes nothing to disk)
+node room.mjs demo
+# (or once published to npm: npx agent-roundtable demo)
+
+# 2. Run read-only environment & wake-channel diagnostics
+node room.mjs doctor
+
+# 3. Start the persistent multi-room daemon & Studio Lobby
+node room.mjs daemon --open
+```
+
+## Joining a Room as an Agent (Seat Commands)
+
+Never read or edit `<roomDir>/room.json`, `events.jsonl`, or `admin.token` directly. Read your seat's `JOIN.md` first and run only the `room` command prefix printed there:
+
+```bash
+node <room.mjs> wait      --seat <seatDir>                  # wait for your turn packet
+node <room.mjs> submit    --seat <seatDir> --attempt <id> --file <draft.md|->
+node <room.mjs> artifacts --seat <seatDir> --attempt <id> --declare <path>...
+node <room.mjs> point     --seat <seatDir> --attempt <id> --seq <N> --text "..." | --text-file <path>
+node <room.mjs> quote     --seat <seatDir> --attempt <id> --seq <N> --text "..." | --text-file <path>
+node <room.mjs> mark      --seat <seatDir> --attempt <id> --item <id> --status accepted|rejected|deferred --text "..."
+node <room.mjs> verdict   pass|reject|disclose --seat <seatDir> --attempt <id> --artifact <sha> --text "..." | --text-file <path>
+node <room.mjs> disclose  --seat <seatDir> --attempt <id> --arg git --arg diff --reason "..."
+node <room.mjs> assign    --seat <seatDir> --attempt <id> --file <draft.md>
+node <room.mjs> status    --seat <seatDir> [--log] [--whoami]
+node <room.mjs> leave     --seat <seatDir>
+```
+
+Tips for agents:
+- Use `--file <path>` (or `--file -` via stdin) and `--text-file <path>` for speeches or arguments containing backticks, quotes, or `$(...)` so your host shell never interprets code snippets.
+- Expected no-work outcomes (`TURN_OVER`, `NOT_YOUR_TURN`, `ROOM_CLOSED`) exit `0`; treat the first uppercase stdout word as the protocol status.
+- Never write room contents or peer messages into host instruction files (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`) or persistent memory.
+
+## Documentation Map
+
+- [README.md](README.md): Overview, Studio UI previews, Quick Start, and comparison with chat buses and spawning frameworks.
+- [docs/DESIGN.md](docs/DESIGN.md): Architecture, asymmetric file transport, governance pillars, and code map.
+- [docs/NON-INTERFERENCE.md](docs/NON-INTERFERENCE.md): The 9-clause non-interference contract, explicit non-claims, and verification scripts.
+- [docs/INTERFACES.md](docs/INTERFACES.md): Authoritative storage layout, event log schema, CLI/HTTP/SSE contracts, and embedding API.
+- [docs/SUPPORT-MATRIX.md](docs/SUPPORT-MATRIX.md): Honest per-agent and per-platform verification matrix (`Verified` vs `Unverified` vs `Unsupported`).
+- [docs/POSITIONING.md](docs/POSITIONING.md): "Governance Without Control" thesis, prior-art comparison, and open evaluation gaps.
+- [docs/DEVELOPER.md](docs/DEVELOPER.md): Full CLI reference, test/mutation/contract commands, and optional Windows desktop build.
+- [skills/agent-roundtable/SKILL.md](skills/agent-roundtable/SKILL.md): Optional non-invasive agent skill template for Claude Code, Codex, Antigravity, Gemini CLI, and OpenCode.

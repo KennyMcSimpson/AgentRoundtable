@@ -9,10 +9,10 @@
 <br>
 
 [![CI](https://github.com/KennyMcSimpson/AgentRoundtable/actions/workflows/ci.yml/badge.svg)](https://github.com/KennyMcSimpson/AgentRoundtable/actions/workflows/ci.yml)
-[![Node >= 22](https://img.shields.io/badge/Node-%3E%3D%2022-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/)
-[![Zero Dependencies](https://img.shields.io/badge/Dependencies-0-6366f1?style=flat-square)](#quick-start)
-[![Platforms](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-0ea5e9?style=flat-square)](docs/SUPPORT-MATRIX.md)
-[![License: MIT](https://img.shields.io/badge/License-MIT-f59e0b?style=flat-square)](LICENSE)
+[![Node >= 22](https://img.shields.io/badge/Node-%3E%3D%2022-2c2a27?style=flat-square&labelColor=191816)](https://nodejs.org/)
+[![Zero Dependencies](https://img.shields.io/badge/Dependencies-0-3f7a58?style=flat-square&labelColor=191816)](#quick-start)
+[![Platforms](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-524f49?style=flat-square&labelColor=191816)](docs/SUPPORT-MATRIX.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-b55939?style=flat-square&labelColor=191816)](LICENSE)
 
 <p>
   <strong>A local, zero-dependency governed roundtable for the coding agents you already run.</strong><br>
@@ -22,13 +22,17 @@
 <p>
   <a href="#preview">Preview</a> &middot;
   <a href="#quick-start">Quick Start</a> &middot;
+  <a href="#how-it-compares">Compare</a> &middot;
   <a href="#architecture">Architecture</a> &middot;
   <a href="#governance-without-control">Governance</a> &middot;
   <a href="#verification">Verification</a> &middot;
-  <a href="#documentation">Docs</a>
+  <a href="#documentation">Docs</a> &middot;
+  <a href="llms.txt">llms.txt</a>
 </p>
 
 </div>
+
+> **For AI coding agents:** see [`llms.txt`](llms.txt) for a concise, machine-friendly orientation, or [`skills/agent-roundtable/SKILL.md`](skills/agent-roundtable/SKILL.md) for an optional non-invasive seat skill.
 
 ---
 
@@ -75,12 +79,34 @@
 
 ## Why AgentRoundtable?
 
-Most multi-agent frameworks launch, wrap, or rewrite the agents they coordinate. **AgentRoundtable** takes the opposite rule: **governance without control**.
+Most multi-agent tools fall into two camps: **spawning frameworks** that launch and own your agents, or **chat-first message buses** that pass plain text between terminals without turn discipline, runaway-loop stops, or artifact verification. **AgentRoundtable** takes a third rule: **governance without control**.
 
-- **Semi-Embedded Seat Kits (`JOIN.md` + `room.cmd` / `room.sh`).** Each seat receives a scoped token and minimal local command. Paste one sentence into an already-running agent (*"Read `<path>/JOIN.md` and join"*), and it runs `wait` -> reads its packet -> runs `submit`. The room never spawns, kills, attaches to, or rewrites your agents' settings, MCP servers, or memories ([Non-Interference Contract](docs/NON-INTERFERENCE.md)).
-- **Deterministic Moderation (0 Model Calls, 0 npm Dependencies).** A plain Node.js process enforces turn order, wraps peer messages in nonce-delimited `authority=none` banners, freezes and recomputes artifact manifests, executes approved disclosure commands inside isolated snapshot copies, and appends every state transition to `events.jsonl`.
-- **Studio Group-Chat, Arena & Approval Inbox.** Follow multi-agent debates in a calm Linear / Claude Desktop-style workspace with dual dark/light themes, compare seats side-by-side in Arena mode, and handle crash reconciliations, timed-out turns, task confirmations, and disclosure requests from a single top Approval Inbox.
-- **Persistent SSE Multi-Room Daemon.** `node room.mjs daemon` hosts the lobby and multiple rooms in one loopback process, streams updates over Server-Sent Events (`/api/stream`, `/lobby/api/stream`), and automatically resumes active rooms on restart.
+- **Semi-Embedded Seat Kits (`JOIN.md` + `room.cmd` / `room.sh`).** Each seat receives a scoped token and minimal local command. Paste one sentence into an already-running agent (*"Read `<path>/JOIN.md` and join"*), and it runs `wait` -> reads its packet -> runs `submit --file <draft.md>` (or `--file -` via stdin). The room never spawns, kills, attaches to, or rewrites your agents' settings, hooks, PATH shims, MCP servers, or memories ([Non-Interference Contract](docs/NON-INTERFERENCE.md)).
+- **Deterministic Moderation (0 Model Calls, 0 npm Dependencies).** A single Node.js >= 22 process — native on Windows, macOS, and Linux with no Bash/Git Bash or SQLite toolchain — enforces turn order, wraps peer messages in nonce-delimited `authority=none` banners, freezes and recomputes artifact manifests, executes approved disclosure commands inside isolated snapshot copies, and appends every state transition to `events.jsonl`.
+- **Calm Editorial Studio UI, Arena & Approval Inbox.** Follow multi-agent debates in a warm-paper & charcoal editorial workspace with adaptive light/dark themes, compare seats side-by-side in Arena mode, and handle crash reconciliations, timed-out turns, task confirmations, and disclosure requests from a compact top Approval Strip.
+- **Read-Only Diagnostics & Native Codex Wake.** `node room.mjs doctor` inspects your runtime, MSIX path safety, daemon status, and Codex wake eligibility without writing a single byte. Optional `codex-queue` wake pushes locate Windows npm-installed native `codex.exe` binaries (falling back across candidates to satisfy the `>= 0.157.0` Windows gate) and classify JSON-RPC `-32600`/`-32603` errors cleanly.
+
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/governance-flow-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/governance-flow-light.svg">
+    <img alt="AgentRoundtable Governance Without Control Pipeline" src="docs/assets/governance-flow-dark.svg" width="100%">
+  </picture>
+</div>
+
+---
+
+## How It Compares
+
+| Dimension | Chat-First Agent Buses (e.g. `agmsg`) | Agent-Spawning Orchestrators | **AgentRoundtable** |
+|---|---|---|---|
+| **Core Role** | Peer-to-peer / team chat floor (*"dumb transport"*) | Launches & owns managed sub-agents | **Governed roundtable & audit workbench** |
+| **Runtime & Deps** | Multi-runtime (Bash / Git Bash + SQLite + optional Node/Python/Rust) | Python / Node framework + SDK + provider keys | **Pure Node.js >= 22 only (0 npm deps)** |
+| **Windows Experience** | Often relies on Git Bash / POSIX path translation | Varies; PTY/tmux wrappers often fragile | **Native first-class** (MSIX guard, no-shell spawn, 3-OS CI) |
+| **Host Config Impact** | Installs hooks, PATH shims, or PTY injectors | Wraps or launches its own agent sessions | **Zero host edits** (9 testable clauses in `contract/`) |
+| **Turn & Runaway Control** | Prompt-level convention (no hard stop) | Framework loop (often LLM-routed) | **Deterministic state machine**, wall-clock holds, fail-closed parsing |
+| **Artifact & Audit Proof** | Plain text / file pointers | Framework-specific | **SHA-256 freeze & `stale` recompute**, snapshot `disclose`, native-log `tainted` audit |
+| **Operator UI** | CLI + separate community viewers / Tauri shell | Logs or hosted web dashboards | **Built-in zero-build Studio UI** (Group Chat + Arena + Approval Inbox over SSE) |
 
 ---
 
@@ -120,7 +146,18 @@ flowchart LR
 
 **Requirements:** **Node.js >= 22** — no `npm install` needed (pure Node.js built-ins).
 
-### 1. Launch the Multi-Room Daemon & Studio Lobby (Recommended)
+### 1. Preview the Studio UI Instantly (Zero Setup, Zero Disk Writes)
+
+```bash
+# Instant 5-agent Studio demo (Group Chat + Arena Compare + Approval Inbox)
+node room.mjs demo
+# or once published to npm:
+npx agent-roundtable demo
+```
+
+Opens a loopback server pre-loaded with a 5-agent engineering PR review fixture (`Claude Code`, `Codex CLI`, `Antigravity`, `Gemini CLI`, and `Built-in Pi`) so you can explore Group Chat, Arena Compare, and the Approval Inbox in two seconds. Pass `--no-open` to print the URL without launching a browser.
+
+### 2. Launch the Multi-Room Daemon & Studio Lobby
 
 ```bash
 # Start the persistent multi-room daemon and open the Lobby in your browser
@@ -129,19 +166,13 @@ node room.mjs daemon --open
 # Check running daemon status
 node room.mjs daemon status
 
-# Or launch a single-session lobby
-node room.mjs lobby --open
+# Run read-only environment, wake-channel & optional room diagnostics (writes nothing)
+node room.mjs doctor
+# Inspect an existing room you created under ~/room-dev/rooms/<room-id>:
+node room.mjs doctor --id <room-id> --json
 ```
 
 Create a room in the Lobby (pick a preset and seats), copy each seat's one-line join prompt into the corresponding agent, open the Room Workspace, set the objective, and start a round.
-
-### 2. Preview the Studio UI Instantly (Zero Setup)
-
-```bash
-node ui/mock-server.mjs --port 0
-```
-
-Opens a loopback server pre-loaded with a 5-agent engineering PR review fixture (`Claude Code`, `Codex CLI`, `Antigravity`, `Gemini CLI`, and `Built-in Pi`) so you can explore Group Chat, Arena Compare, and the Approval Inbox immediately.
 
 <details>
 <summary><strong>CLI Workflow &amp; Optional Windows Desktop Shell</strong></summary>
@@ -213,7 +244,9 @@ Exact verification boundaries are tracked transparently in [`docs/SUPPORT-MATRIX
 
 | Document | Description |
 |---|---|
-| [`CHANGELOG.md`](CHANGELOG.md) | Release history and `v0.2.1` highlights |
+| [`CHANGELOG.md`](CHANGELOG.md) | Release history and `v0.3.0` highlights |
+| [`llms.txt`](llms.txt) | Machine-friendly orientation for AI coding agents |
+| [`skills/agent-roundtable/SKILL.md`](skills/agent-roundtable/SKILL.md) | Optional non-invasive agent skill template (opt-in only) |
 | [`docs/DESIGN.md`](docs/DESIGN.md) | Architecture, asymmetric transport, governance pillars, and code map |
 | [`docs/INTERFACES.md`](docs/INTERFACES.md) | Storage layout, event schema, CLI/HTTP/SSE contracts, and embedding API |
 | [`docs/NON-INTERFERENCE.md`](docs/NON-INTERFERENCE.md) | 9-clause non-interference contract, measurement methods, and scope non-claims |

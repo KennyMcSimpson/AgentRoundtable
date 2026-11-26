@@ -13,7 +13,7 @@ export const APP_TITLE = 'AgentRoundtable';
 export const ROOM_WINDOW_TITLE = 'AgentRoundtable · Room';
 export const WINDOW_SIZE = Object.freeze({ width: 1180, height: 800, minWidth: 820, minHeight: 560 });
 // ui/lobby.css --bg (light / prefers-color-scheme: dark), so the window does not flash white.
-export const BACKGROUND = Object.freeze({ light: '#f7f8fa', dark: '#0d0f13' });
+export const BACKGROUND = Object.freeze({ light: '#f6f4ee', dark: '#171614' });
 export const QUIT_GRACE_MS = 4000;
 export const LOBBY_START_TIMEOUT_MS = 30_000;
 export const ROOM_PORT_WAIT_MS = 3000;

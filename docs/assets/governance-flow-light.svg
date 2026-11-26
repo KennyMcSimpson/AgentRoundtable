@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 316" width="1200" height="316" role="img" aria-labelledby="gf-title-l gf-desc-l">
+  <title id="gf-title-l">AgentRoundtable — Governance Without Control Pipeline (Light)</title>
+  <desc id="gf-desc-l">Four deterministic governance stages on a clean editorial grid: Artifact Freeze, Drift and Spoof Guard, Snapshot and Log Audit, and Verified Outcome.</desc>
+
+  <!-- Warm unbleached paper canvas, crisp 1px outer frame -->
+  <rect x="0.5" y="0.5" width="1199" height="315" rx="10" fill="#f6f4ee" stroke="#dedad0" stroke-width="1"/>
+
+  <!-- Header rule -->
+  <g font-family="ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo, Consolas, monospace" font-size="11" font-weight="500" letter-spacing="0.1em" fill="#76736b">
+    <text x="44" y="36">FIG 01  /  GOVERNANCE WITHOUT CONTROL</text>
+    <text x="1156" y="36" text-anchor="end">0 LLM CALLS  ·  0 HOST EDITS  ·  DETERMINISTIC</text>
+  </g>
+  <line x1="44" y1="52" x2="1156" y2="52" stroke="#dedad0" stroke-width="1"/>
+
+  <!-- Top horizontal timeline spine connecting all 4 stages -->
+  <line x1="50" y1="86" x2="1150" y2="86" stroke="#dedad0" stroke-width="1"/>
+  <g fill="#f6f4ee" stroke="#191816" stroke-width="1.5">
+    <circle cx="50" cy="86" r="4"/>
+    <circle cx="338" cy="86" r="4"/>
+    <circle cx="626" cy="86" r="4"/>
+    <circle cx="914" cy="86" r="4" fill="#b55939" stroke="#b55939"/>
+  </g>
+  <!-- Crisp minimalist direction ticks -->
+  <g fill="none" stroke="#9e998e" stroke-width="1.25" stroke-linecap="square">
+    <polyline points="314,82 319,86 314,90"/>
+    <polyline points="602,82 607,86 602,90"/>
+    <polyline points="890,82 895,86 890,90"/>
+  </g>
+
+  <!-- Subtle column hairline dividers -->
+  <g stroke="#e6e2d8" stroke-width="1">
+    <line x1="322" y1="104" x2="322" y2="250"/>
+    <line x1="610" y1="104" x2="610" y2="250"/>
+    <line x1="898" y1="104" x2="898" y2="250"/>
+  </g>
+
+  <!-- Stage 1 -->
+  <g transform="translate(44, 106)">
+    <text x="0" y="14" font-family="ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo, Consolas, monospace" font-size="10.5" font-weight="600" letter-spacing="0.08em" fill="#76736b">01 / WORK</text>
+    <text x="0" y="42" font-family="Georgia, 'Iowan Old Style', Cambria, serif" font-size="19" font-weight="400" fill="#191816">Artifact Freeze</text>
+    <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, system-ui, sans-serif" font-size="12.5" fill="#524f49">
+      <text x="0" y="70">Executor declares output paths</text>
+      <text x="0" y="92">SHA-256 manifest + snapshot copy</text>
+      <text x="0" y="114">Zero git commands on live repo</text>
+    </g>
+    <rect x="0" y="128" width="246" height="24" rx="4" fill="#eeebe2" stroke="#dedad0" stroke-width="1"/>
+    <text x="10" y="144" font-family="ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo, Consolas, monospace" font-size="10.5" font-weight="500" fill="#44423d">event: artifacts_frozen</text>
+  </g>
+
+  <!-- Stage 2 -->
+  <g transform="translate(338, 106)">
+    <text x="0" y="14" font-family="ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo, Consolas, monospace" font-size="10.5" font-weight="600" letter-spacing="0.08em" fill="#76736b">02 / MEET</text>
+    <text x="0" y="42" font-family="Georgia, 'Iowan Old Style', Cambria, serif" font-size="19" font-weight="400" fill="#191816">Drift &amp; Spoof Guard</text>
+    <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, system-ui, sans-serif" font-size="12.5" fill="#524f49">
+      <text x="0" y="70">Re-hash live files at verdict</text>
+      <text x="0" y="92">Mid-review edits auto-flagged</text>
+      <text x="0" y="114">Nonce banners: authority=none</text>
+    </g>
+    <rect x="0" y="128" width="246" height="24" rx="4" fill="#f3ebd8" stroke="#dfcfac" stroke-width="1"/>
+    <text x="10" y="144" font-family="ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo, Consolas, monospace" font-size="10.5" font-weight="500" fill="#885513">flag: stale -&gt; excluded</text>
+  </g>
+
+  <!-- Stage 3 -->
+  <g transform="translate(626, 106)">
+    <text x="0" y="14" font-family="ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo, Consolas, monospace" font-size="10.5" font-weight="600" letter-spacing="0.08em" fill="#76736b">03 / AUDIT</text>
+    <text x="0" y="42" font-family="Georgia, 'Iowan Old Style', Cambria, serif" font-size="19" font-weight="400" fill="#191816">Snapshot &amp; Log Audit</text>
+    <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, system-ui, sans-serif" font-size="12.5" fill="#524f49">
+      <text x="0" y="70">Approved disclose in snapshot</text>
+      <text x="0" y="92">No shell, confined HOME &amp; GIT</text>
+      <text x="0" y="114">Read-only native-log checks</text>
+    </g>
+    <rect x="0" y="128" width="246" height="24" rx="4" fill="#f5e7e5" stroke="#e2c3bf" stroke-width="1"/>
+    <text x="10" y="144" font-family="ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo, Consolas, monospace" font-size="10.5" font-weight="500" fill="#96322f">flag: tainted on write</text>
+  </g>
+
+  <!-- Stage 4 -->
+  <g transform="translate(914, 106)">
+    <text x="0" y="14" font-family="ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo, Consolas, monospace" font-size="10.5" font-weight="600" letter-spacing="0.08em" fill="#9d4a2e">04 / SUMMARY</text>
+    <text x="0" y="42" font-family="Georgia, 'Iowan Old Style', Cambria, serif" font-size="19" font-weight="400" fill="#191816">Verified Outcome</text>
+    <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, system-ui, sans-serif" font-size="12.5" fill="#524f49">
+      <text x="0" y="70">Lead marks every pending item</text>
+      <text x="0" y="92">Superseded &amp; #seq verification</text>
+      <text x="0" y="114">Approval strip + evidence zip</text>
+    </g>
+    <rect x="0" y="128" width="242" height="24" rx="4" fill="#e6efe9" stroke="#c3d9cb" stroke-width="1"/>
+    <text x="10" y="144" font-family="ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo, Consolas, monospace" font-size="10.5" font-weight="500" fill="#2c5e41">state: verified_summary</text>
+  </g>
+
+  <!-- Editorial colophon footer -->
+  <line x1="44" y1="274" x2="1156" y2="274" stroke="#dedad0" stroke-width="1"/>
+  <g font-family="ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#76736b">
+    <text x="44" y="297">Pure Node.js &gt;= 22 (0 deps)   /   Windows · macOS · Linux native   /   Read-only doctor   /   Studio SSE UI</text>
+    <text x="1156" y="297" text-anchor="end">events.jsonl</text>
+  </g>
+</svg>

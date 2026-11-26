@@ -1,165 +1,71 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 320" width="1200" height="320" role="img" aria-labelledby="title desc">
-  <title id="title">AgentRoundtable — Governed multi-agent roundtable</title>
-  <desc id="desc">Governed multi-agent roundtable for the coding agents you already run: Zero Dependencies, Local-First SSE, Governance Without Control.</desc>
-  <defs>
-    <linearGradient id="bg-dark" x1="0" y1="0" x2="1200" y2="320" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#0d0f13"/>
-      <stop offset="55%" stop-color="#10131a"/>
-      <stop offset="100%" stop-color="#0b0d11"/>
-    </linearGradient>
-    <radialGradient id="glow-indigo" cx="205" cy="160" r="220" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#7c86ff" stop-opacity="0.22"/>
-      <stop offset="55%" stop-color="#6366f1" stop-opacity="0.06"/>
-      <stop offset="100%" stop-color="#0d0f13" stop-opacity="0"/>
-    </radialGradient>
-    <radialGradient id="glow-emerald" cx="1010" cy="280" r="300" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#34d399" stop-opacity="0.12"/>
-      <stop offset="60%" stop-color="#10b981" stop-opacity="0.03"/>
-      <stop offset="100%" stop-color="#0d0f13" stop-opacity="0"/>
-    </radialGradient>
-    <radialGradient id="core-glow" cx="205" cy="160" r="42" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#7c86ff" stop-opacity="0.45"/>
-      <stop offset="70%" stop-color="#7c86ff" stop-opacity="0.08"/>
-      <stop offset="100%" stop-color="#7c86ff" stop-opacity="0"/>
-    </radialGradient>
-    <linearGradient id="title-grad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#ffffff"/>
-      <stop offset="100%" stop-color="#cbd5e1"/>
-    </linearGradient>
-    <linearGradient id="ring-grad" x1="135" y1="90" x2="275" y2="230" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#7c86ff" stop-opacity="0.65"/>
-      <stop offset="35%" stop-color="#34d399" stop-opacity="0.5"/>
-      <stop offset="70%" stop-color="#38bdf8" stop-opacity="0.5"/>
-      <stop offset="100%" stop-color="#e07a5f" stop-opacity="0.6"/>
-    </linearGradient>
-    <linearGradient id="divider-grad" x1="0" y1="54" x2="0" y2="266" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#ffffff" stop-opacity="0"/>
-      <stop offset="50%" stop-color="#ffffff" stop-opacity="0.10"/>
-      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
-    </linearGradient>
-    <pattern id="dot-grid-dark" width="24" height="24" patternUnits="userSpaceOnUse">
-      <circle cx="2" cy="2" r="1" fill="#ffffff" fill-opacity="0.045"/>
-    </pattern>
-    <clipPath id="card-clip">
-      <rect x="0.5" y="0.5" width="1199" height="319" rx="20"/>
-    </clipPath>
-  </defs>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 284" width="1200" height="284" role="img" aria-labelledby="hero-title-d hero-desc-d">
+  <title id="hero-title-d">AgentRoundtable — Governed multi-agent roundtable (Dark)</title>
+  <desc id="hero-desc-d">Editorial title plate for AgentRoundtable: governed multi-agent roundtable for the coding agents you already run, with zero npm dependencies, local-first SSE, and governance without control.</desc>
 
-  <g clip-path="url(#card-clip)">
-    <rect width="1200" height="320" fill="url(#bg-dark)"/>
-    <rect width="1200" height="320" fill="url(#dot-grid-dark)"/>
-    <rect width="1200" height="320" fill="url(#glow-indigo)"/>
-    <rect width="1200" height="320" fill="url(#glow-emerald)"/>
+  <!-- Warm charcoal obsidian canvas, crisp 1px outer frame -->
+  <rect x="0.5" y="0.5" width="1199" height="283" rx="10" fill="#171614" stroke="#2d2b27" stroke-width="1"/>
 
-    <!-- Subtle top-right version tag -->
-    <g font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="11" font-weight="500" letter-spacing="0.08em" fill="#64748b">
-      <text x="1152" y="42" text-anchor="end">v0.2 · MIT · NODE &gt;= 22</text>
-    </g>
+  <!-- Top masthead rule & catalog metadata -->
+  <g font-family="ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo, Consolas, monospace" font-size="11" font-weight="500" letter-spacing="0.12em" fill="#8a857b">
+    <text x="52" y="37">LOCAL MULTI-AGENT GOVERNANCE</text>
+    <text x="1148" y="37" text-anchor="end">v0.3.0  /  MIT  /  NODE &gt;= 22</text>
+  </g>
+  <line x1="52" y1="52" x2="1148" y2="52" stroke="#2b2925" stroke-width="1"/>
 
-    <!-- Left Roundtable Constellation Emblem -->
-    <g transform="translate(0, 0)">
-      <!-- Outer governance boundary ring -->
-      <circle cx="205" cy="160" r="102" fill="none" stroke="#ffffff" stroke-opacity="0.07" stroke-width="1" stroke-dasharray="3 6"/>
-      <circle cx="205" cy="160" r="85" fill="none" stroke="#ffffff" stroke-opacity="0.04" stroke-width="1"/>
-
-      <!-- Main circular roundtable ring -->
-      <circle cx="205" cy="160" r="68" fill="none" stroke="url(#ring-grad)" stroke-width="1.6"/>
-      <circle cx="205" cy="160" r="68" fill="none" stroke="#ffffff" stroke-opacity="0.09" stroke-width="6"/>
-
-      <!-- Curved orbital communication arcs to central core -->
-      <g fill="none" stroke-width="1.35" stroke-linecap="round">
-        <path d="M 205 92 Q 218 126 205 160" stroke="#7c86ff" stroke-opacity="0.55"/>
-        <path d="M 270 139 Q 242 162 205 160" stroke="#34d399" stroke-opacity="0.55"/>
-        <path d="M 245 215 Q 213 196 205 160" stroke="#38bdf8" stroke-opacity="0.55"/>
-        <path d="M 165 215 Q 173 178 205 160" stroke="#fbbf24" stroke-opacity="0.55"/>
-        <path d="M 140 139 Q 178 138 205 160" stroke="#e07a5f" stroke-opacity="0.55"/>
-      </g>
-
-      <!-- Deterministic Governance Core -->
-      <circle cx="205" cy="160" r="42" fill="url(#core-glow)"/>
-      <circle cx="205" cy="160" r="21" fill="#131722" stroke="#7c86ff" stroke-opacity="0.55" stroke-width="1.25"/>
-      <circle cx="205" cy="160" r="14" fill="none" stroke="#ffffff" stroke-opacity="0.16" stroke-width="1"/>
-      <rect x="199" y="154" width="12" height="12" rx="2.5" transform="rotate(45 205 160)" fill="#1d2336" stroke="#c7d2fe" stroke-width="1.4"/>
-      <circle cx="205" cy="160" r="2.6" fill="#ffffff"/>
-
-      <!-- 5 Luminous Agent Nodes -->
-      <!-- Top: Antigravity (#7c86ff) -->
-      <g>
-        <circle cx="205" cy="92" r="13" fill="#7c86ff" fill-opacity="0.18"/>
-        <circle cx="205" cy="92" r="7.5" fill="#10131a" stroke="#7c86ff" stroke-width="2"/>
-        <circle cx="205" cy="92" r="3.4" fill="#7c86ff"/>
-      </g>
-      <!-- Upper-Right: Codex (#34d399) -->
-      <g>
-        <circle cx="270" cy="139" r="13" fill="#34d399" fill-opacity="0.18"/>
-        <circle cx="270" cy="139" r="7.5" fill="#10131a" stroke="#34d399" stroke-width="2"/>
-        <circle cx="270" cy="139" r="3.4" fill="#34d399"/>
-      </g>
-      <!-- Lower-Right: Gemini (#38bdf8) -->
-      <g>
-        <circle cx="245" cy="215" r="13" fill="#38bdf8" fill-opacity="0.18"/>
-        <circle cx="245" cy="215" r="7.5" fill="#10131a" stroke="#38bdf8" stroke-width="2"/>
-        <circle cx="245" cy="215" r="3.4" fill="#38bdf8"/>
-      </g>
-      <!-- Lower-Left: Pi (#fbbf24) -->
-      <g>
-        <circle cx="165" cy="215" r="13" fill="#fbbf24" fill-opacity="0.18"/>
-        <circle cx="165" cy="215" r="7.5" fill="#10131a" stroke="#fbbf24" stroke-width="2"/>
-        <circle cx="165" cy="215" r="3.4" fill="#fbbf24"/>
-      </g>
-      <!-- Upper-Left: Claude (#e07a5f) -->
-      <g>
-        <circle cx="140" cy="139" r="13" fill="#e07a5f" fill-opacity="0.18"/>
-        <circle cx="140" cy="139" r="7.5" fill="#10131a" stroke="#e07a5f" stroke-width="2"/>
-        <circle cx="140" cy="139" r="3.4" fill="#e07a5f"/>
-      </g>
-
-      <!-- Subtle seat node labels -->
-      <g font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="11" font-weight="500" letter-spacing="0.02em" fill="#94a3b8">
-        <text x="205" y="68" text-anchor="middle">Antigravity</text>
-        <text x="291" y="143" text-anchor="start">Codex</text>
-        <text x="264" y="232" text-anchor="start">Gemini</text>
-        <text x="146" y="232" text-anchor="end">Pi</text>
-        <text x="119" y="143" text-anchor="end">Claude</text>
-      </g>
-    </g>
-
-    <!-- Subtle vertical separator -->
-    <line x1="362" y1="54" x2="362" y2="266" stroke="url(#divider-grad)" stroke-width="1"/>
-
-    <!-- Right Typography & Metadata Block -->
-    <g font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
-      <!-- Overline -->
-      <circle cx="404" cy="83" r="3.5" fill="#34d399"/>
-      <circle cx="404" cy="83" r="7" fill="#34d399" fill-opacity="0.18"/>
-      <text x="418" y="87" font-size="11.5" font-weight="600" letter-spacing="0.15em" fill="#94a3b8">LOCAL MULTI-AGENT GOVERNANCE</text>
-
-      <!-- Hero Title -->
-      <text x="398" y="152" font-size="56" font-weight="750" letter-spacing="-0.03em" fill="url(#title-grad)">AgentRoundtable</text>
-
-      <!-- Subtitle -->
-      <text x="400" y="191" font-size="18.5" font-weight="400" fill="#9ca3af">Governed multi-agent roundtable for the coding agents you already run</text>
-
-      <!-- Minimalist Pill Tags -->
-      <g transform="translate(398, 222)">
-        <!-- Pill 1 -->
-        <rect x="0" y="0" width="174" height="34" rx="17" fill="#ffffff" fill-opacity="0.04" stroke="#ffffff" stroke-opacity="0.11" stroke-width="1"/>
-        <circle cx="19" cy="17" r="3.5" fill="#34d399"/>
-        <text x="32" y="21.5" font-size="13" font-weight="500" fill="#e2e8f0">Zero Dependencies</text>
-
-        <!-- Pill 2 -->
-        <rect x="188" y="0" width="156" height="34" rx="17" fill="#ffffff" fill-opacity="0.04" stroke="#ffffff" stroke-opacity="0.11" stroke-width="1"/>
-        <circle cx="207" cy="17" r="3.5" fill="#38bdf8"/>
-        <text x="220" y="21.5" font-size="13" font-weight="500" fill="#e2e8f0">Local-First SSE</text>
-
-        <!-- Pill 3 -->
-        <rect x="358" y="0" width="236" height="34" rx="17" fill="#ffffff" fill-opacity="0.04" stroke="#ffffff" stroke-opacity="0.11" stroke-width="1"/>
-        <circle cx="377" cy="17" r="3.5" fill="#7c86ff"/>
-        <text x="390" y="21.5" font-size="13" font-weight="500" fill="#e2e8f0">Governance Without Control</text>
-      </g>
-    </g>
+  <!-- Left Editorial Typography Block -->
+  <g>
+    <text x="50" y="136" font-family="Georgia, 'Iowan Old Style', 'Palatino Linotype', Cambria, serif" font-size="58" font-weight="400" letter-spacing="-0.025em" fill="#ece9e1">AgentRoundtable</text>
+    <text x="52" y="176" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, system-ui, sans-serif" font-size="17.5" font-weight="400" fill="#a8a398">Governed roundtable for the coding agents you already run.</text>
   </g>
 
-  <!-- Crisp hairline outer border -->
-  <rect x="0.5" y="0.5" width="1199" height="319" rx="20" fill="none" stroke="#ffffff" stroke-opacity="0.09" stroke-width="1"/>
+  <!-- Bottom typographic spec line (hairline rule, zero pill soup) -->
+  <line x1="52" y1="214" x2="770" y2="214" stroke="#2b2925" stroke-width="1"/>
+  <g font-family="ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo, Consolas, monospace" font-size="11.5" font-weight="500" fill="#c2bdb2">
+    <text x="52" y="242">0 npm dependencies</text>
+    <text x="200" y="242" fill="#524f49">/</text>
+    <text x="224" y="242">Local-first SSE</text>
+    <text x="352" y="242" fill="#524f49">/</text>
+    <text x="376" y="242">Governance without control</text>
+  </g>
+
+  <!-- Hairline vertical divider -->
+  <line x1="808" y1="74" x2="808" y2="248" stroke="#292723" stroke-width="1"/>
+
+  <!-- Right Minimalist Architectural Roundtable Line-Art Emblem -->
+  <g>
+    <!-- Outer dashed measure ring & solid table ring -->
+    <circle cx="984" cy="160" r="72" fill="none" stroke="#302e29" stroke-width="1" stroke-dasharray="2 5"/>
+    <circle cx="984" cy="160" r="54" fill="none" stroke="#d8d3c8" stroke-width="1.25"/>
+
+    <!-- Fine radial spokes from 5 seats toward central governance core -->
+    <g stroke="#3d3a34" stroke-width="1">
+      <line x1="984" y1="106" x2="984" y2="142"/>
+      <line x1="1035" y1="143" x2="1001" y2="154"/>
+      <line x1="1016" y1="204" x2="995" y2="175"/>
+      <line x1="952" y1="204" x2="973" y2="175"/>
+      <line x1="933" y1="143" x2="967" y2="154"/>
+    </g>
+
+    <!-- Central governance mark — single warm terracotta focal accent -->
+    <circle cx="984" cy="160" r="14" fill="#171614" stroke="#d8d3c8" stroke-width="1.25"/>
+    <circle cx="984" cy="160" r="5" fill="#d47a57"/>
+
+    <!-- 5 monochrome geometric seats on the perimeter -->
+    <g fill="#171614" stroke="#d8d3c8" stroke-width="1.5">
+      <circle cx="984" cy="106" r="5"/>
+      <circle cx="1035" cy="143" r="5"/>
+      <circle cx="1016" cy="204" r="5"/>
+      <circle cx="952" cy="204" r="5"/>
+      <circle cx="933" cy="143" r="5"/>
+    </g>
+
+    <!-- Quiet monospace seat labels -->
+    <g font-family="ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo, Consolas, monospace" font-size="10.5" font-weight="500" fill="#9a958b">
+      <text x="984" y="78" text-anchor="middle">Claude</text>
+      <text x="1062" y="146" text-anchor="start">Codex</text>
+      <text x="1040" y="222" text-anchor="start">Antigravity</text>
+      <text x="928" y="222" text-anchor="end">Gemini</text>
+      <text x="906" y="146" text-anchor="end">Pi</text>
+    </g>
+  </g>
 </svg>

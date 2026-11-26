@@ -615,16 +615,16 @@ function joinFor(agent, over = {}) {
 
 // sha256 of renderJoin(JOIN_FIXTURE) per agent kind on win32. Update deliberately when the text changes.
 const JOIN_SNAPSHOTS = {
-  'claude-code': 'd14e77278ab7763827e3f167335b27fb20b9efabc3ee667b286a7f58b0106027',
-  'codex-desktop': '0b4e8788c931ead0f0a1fd867bd017b02a383927f6630aa34249c100ebc400ee',
-  'codex-cli': 'b47eae14f4962db08f7a01911859ca15e6ca27b07651ba49f66535cb3092d1d9',
-  antigravity: 'fbbdc4447a2e48869e6ca1685be1f3f357fa961c688b7b8a67b28174dfa15cfb',
-  opencode: '547a6143381cc4bbb3448d05d61ece14cece7581e1a33e9b6ebb9de03d8f67e9',
-  'gemini-cli': '6417a1d3891c1caab5be83ce99175222692f01f431b39668e75db8c9e3202a05',
-  kimi: 'fec0c468d6d02f89e2555adea8cb35db72cb95c403fa8e57c38b37abeb08d8d0',
-  dsh: 'b61adfd544c2114ad1126c5c9a3a21420062551dfb1148d077add554f00e23b0',
-  'pi-user': '757d313eb13f7083743ca19507a492349582ceff4a3b0cb9a0999fcbbc0c58b9',
-  generic: 'c986a151117b1dfadaf14249a8d5ea03a421b1be6f6864e31b5da53d9ae986c7',
+  'claude-code': '3667347b7eec1bd8138ca7f4420fa5004f8dbce3a167ca90ccc8df210e501614',
+  'codex-desktop': 'c8374b0b0d79cd78ab0b5d38ae7805dfe0489734d874bfdac18f0aea8fcabac6',
+  'codex-cli': '10fd2ac844b850f7a7a90626f7e04c96419f1884b4b9af5a6e5f6cb9e252562a',
+  antigravity: '10945f951b6ba9657d14a0165643971ce570b9233f986a7d2bd5ffe70fea4af2',
+  opencode: 'e5843c590520841f22b9c07f1ff45c2e9aee811a9dbc95be29e20bdb8332419c',
+  'gemini-cli': '07df0aebd2620e4f53e2d62bbc8f18bcd1df1209fc9851a94f95632557037bb8',
+  kimi: '9833641f5bd954d69728f2badb871808db304d451eb9cf1ed02875c3b10430db',
+  dsh: 'a02a74caaef48c8ff67ca321eb951cdde387332a89d80edcd9be5c16ac28f28d',
+  'pi-user': 'bf2c2636c51736c9c8c070d65e98335f80d892f6480e9b93844171421d0bdfa2',
+  generic: '8051ad79035e86f596a6b121a95a9a25c44019d2ad2fdbe8b7951836e66cd909',
 };
 
 test('JOIN.md variants: every agent kind states wait mode, cost, permissions, persistence, uploads, memory, farewell', () => {

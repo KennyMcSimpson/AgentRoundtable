@@ -2,6 +2,25 @@
 
 All notable changes to `AgentRoundtable` (`room-dev`) are documented here.
 
+## [0.3.0] - 2026-11-27
+
+### Added
+- **Zero-Friction Instant Demo & npm Distribution Readiness**:
+  - Added `node room.mjs demo [--port N] [--no-open] [--fixture <path>]` (and `npm run demo`) to preview the 5-agent Studio Web UI (Group Chat, Arena Compare, Approval Strip, Light/Dark themes) in seconds with zero setup and zero disk writes.
+  - Added `node room.mjs --version` (`-v` / `version`), lean npm `files` publish whitelist in `package.json` (excluding README PNG screenshots from the tarball), machine-friendly [`llms.txt`](llms.txt), and an optional non-invasive seat skill template at [`skills/agent-roundtable/SKILL.md`](skills/agent-roundtable/SKILL.md).
+- **Strictly Read-Only Anti-Silent-Failure Diagnostics (`room doctor`)**:
+  - Added `lib/doctor.mjs` and `node room.mjs doctor [--dir <roomDir> | --id <roomId>] [--rooms-root <dir>] [--json]` (`npm run doctor`).
+  - Inspects Node.js baseline, MSIX AppData virtualization & path safety, multi-room daemon & registry health, Codex native wake eligibility, and optional room `events.jsonl` / `service.lock` / seat `cwd` status — never writes files, never reports unreadable data as `0`, distinguishes `ok`, `warn`, `fail`, `unknown`, and `unconfigured`, and keeps optional Codex wake checks non-fatal unless an inspected room explicitly depends on `codex-queue`.
+- **Upgraded Windows Codex Discovery & Error Classification**:
+  - Upgraded `lib/codex.mjs` to locate native Windows vendor `codex.exe` binaries inside npm-installed `@openai/codex-win32-<arch>` trees (bypassing `.cmd` shims without a shell), walk all discovered candidates so an older Codex Desktop binary does not shadow a newer npm global install, enforce the Windows `>= 0.157.0` queue gate asynchronously via `lib/spawn.mjs` (10s cold-start timeout, zero extra probe overhead on POSIX), and classify `codex queue` JSON-RPC error codes `-32600` (`thread_archived`) and `-32603` (`thread_rollout_not_found`).
+- **Stdin Speech Piping (`submit --file -`)**:
+  - Extended `room submit` in `lib/seat.mjs` to accept `--file -` for bounded async UTF-8 stdin piping (10 MiB cap), eliminating shell quoting and backtick/`$(...)` interpolation hazards for code-heavy speeches.
+
+### Changed
+- **Warm Paper & Charcoal Editorial Visual Redesign (UI + SVGs + Previews)**:
+  - Replaced generic dark-indigo neon styling across `ui/app.css`, `ui/rt-chat.css`, `ui/lobby.css`, and `app/main-helpers.mjs` with a restrained warm-paper (`#f6f4ee`) and warm-charcoal (`#171614`) editorial system inspired by print typography and modern reading-first developer tools: monochrome high-contrast primary actions, a single muted terracotta accent (`#b55939` / `#d47a57`) echoing the wooden roundtable app icon, monochrome seat monograms, hairline dividers instead of nested cards, quiet top approval strip, and clean wide Arena columns.
+  - Replaced dot-grid/glow/pill SVG banners with crisp editorial typography hero banners (`docs/assets/hero-{dark,light}.svg`) and clean Swiss-grid governance pipeline diagrams (`docs/assets/governance-flow-{dark,light}.svg`), updated README comparison docs, refreshed all 6 Studio/Lobby preview screenshots, and integrated `public-scan.mjs` + `doctor --json` checks into the 3-OS GitHub Actions CI matrix.
+
 ## [0.2.1] - 2026-11-25
 
 ### Changed & Polished

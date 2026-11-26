@@ -33,6 +33,9 @@ All commands run via `node room.mjs <command> ...` (or `agent-roundtable` / `roo
 |---|---|
 | `node room.mjs daemon [--port N] [--rooms-root <dir>] [--no-resume] [--lang en] [--open]` | Persistent multi-room host + Lobby UI + SSE (`/lobby/api/stream`, `/lobby/api/health`) + atomic registry outside `<roomDir>` + auto-resume of active rooms on restart. |
 | `node room.mjs daemon status [--rooms-root <dir>]` | Print live daemon PID, status, URL, rooms root, and tracked rooms. |
+| `node room.mjs doctor [--dir <roomDir> \| --id <roomId>] [--rooms-root <dir>] [--json]` | Strictly read-only environment, MSIX path safety, daemon/registry, Codex wake gate, and optional room diagnostics (writes nothing to disk). |
+| `node room.mjs demo [--port N] [--no-open] [--fixture <path>]` | Zero-setup, zero-disk-write Studio UI preview with a built-in 5-agent engineering PR review fixture. |
+| `node room.mjs --version` | Print the installed `agent-roundtable` package version (`-v` / `version` aliases). |
 | `node room.mjs lobby [--port N] [--rooms-root <dir>] [--resume] [--lang en] [--open]` | Loopback Lobby UI (default port `7380`, fallback to free port) to create rooms, copy onboarding prompts, open room UIs, and dispatch tasks. |
 | `node room.mjs serve --dir <roomDir> [--tick ms] [--once] [--port N] [--pi-key-stdin]` | Single-room service (sole writer of `events.jsonl`). `--port 0` opens the loopback Room UI + SSE (`/api/stream`) with the admin token in `#fragment` only. |
 
@@ -41,7 +44,7 @@ All commands run via `node room.mjs <command> ...` (or `agent-roundtable` / `roo
 | Command | Purpose |
 |---|---|
 | `admin init --id <id> [--dir <dir>] [--preset <name>] [--lang en] [--wall s] [--work-wall s] [--max-work n] [--max-tokens n] [--packet-max-bytes n]` | Initialize room (`implement-review`, `discussion`, `report`, `cross-check`, `division`, `simplified`). |
-| `admin add-seat --seat <id> --role lead\|reviewer\|executor\|participant --cwd <dir> [--agent <kind>] [--wait background\|turn_over\|manual] [--tier discussion\|readonly\|workspace\|full] [--reviews A,B] [--hosted pi:discussion\|pi:exec\|pi:reviewer\|lane:<name>[:<tier>]] [--model <id>] [--surface cli\|tool:<name>] [--wake-thread <uuid\|name>] [--wake-max n] [--audit codex\|claude --thread-id <uuid> --session-id <id>]` | Register a seat while the service is stopped and generate `seats/<id>/JOIN.md`, `room.cmd`, and `room.sh`. |
+| `admin add-seat --seat <id> --role lead\|reviewer\|executor\|participant --cwd <dir> [--agent <kind>] [--wait background\|turn_over\|manual] [--tier discussion\|readonly\|workspace\|full] [--reviews A,B] [--hosted pi:discussion\|pi:exec\|pi:reviewer\|lane:<name>[:<tier>]] [--model <id>] [--surface cli\|tool:<name>] [--wake-thread <uuid\|name>] [--wake-kind codex-queue] [--wake-max n] [--audit codex\|claude --thread-id <uuid> --session-id <id>]` | Register a seat while the service is stopped and generate `seats/<id>/JOIN.md`, `room.cmd`, and `room.sh`. |
 | `admin set-audit --seat <id> --kind codex\|claude [--thread-id <uuid>] [--session-id <id>]` | Attach or update a seat's read-only audit source. |
 | `admin task\|say --text "..." \| --file <path>` | Set the room task or queue a user interjection for the next round boundary. |
 | `admin start --order A,B[,A]` | Start a round with the specified Meet speaking order. |
@@ -56,7 +59,7 @@ All commands run via `node room.mjs <command> ...` (or `agent-roundtable` / `roo
 
 ### Seat Commands, Audit & Optional Client Driver
 
-- **Seat commands** (`--seat <seatDir>`, turn commands add `--attempt <id>`): `wait`, `submit`, `status [--log] [--whoami]`, `leave`, `artifacts --declare <paths>... [--baseline none|whole|<sha>] [--exclude <glob>]`, `point`, `quote`, `mark`, `verdict pass|reject|disclose`, `disclose --arg <v>... --reason "..."`, `pass`, `misquoted`, `assign --file <draft.md>`.
+- **Seat commands** (`--seat <seatDir>`, turn commands add `--attempt <id>`): `wait`, `submit --file <path|->`, `status [--log] [--whoami]`, `leave`, `artifacts --declare <paths>... [--baseline none|whole|<sha>] [--exclude <glob>]`, `point`, `quote`, `mark`, `verdict pass|reject|disclose`, `disclose --arg <v>... --reason "..."`, `pass`, `misquoted`, `assign --file <draft.md>`.
 - **Audit**: `node room.mjs audit --seat <seatDir> [--packet <id>] [--verbose]` — read-only native-log verification.
 - **Optional seat-side driver**: `node room.mjs drive --seat <seatDir> [--runner codex-cli] --model <id> --effort <level> [--codex-exe <path>] [--max-turns <n>]` — runs outside the room service, never imports `lib/service.mjs`, writes only to the seat's outbox.
 
@@ -65,7 +68,7 @@ All commands run via `node room.mjs <command> ...` (or `agent-roundtable` / `roo
 ```text
 room.mjs                CLI entrypoint (seat commands strip env & load only lib/seat.mjs)
 lib/                    Zero-dependency ESM core (service, reducer, http, lobby, daemon-store,
-                        seat, admin, join, driver, packet, surface, i18n, budget, usage,
+                        doctor, seat, admin, join, driver, packet, surface, i18n, budget, usage,
                         structured, supervision, workspace, audit, spawn, guard, codex, api,
                         export, zip, hosted/{pi,dpapi}, templates/*.md)
 ui/                     Zero-build Web UI (Group-Chat & Arena room view, lobby, mock-server, fixtures)

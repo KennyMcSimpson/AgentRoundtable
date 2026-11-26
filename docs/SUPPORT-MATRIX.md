@@ -1,6 +1,6 @@
-# Support & Verification Matrix (v0.2.0)
+# Support & Verification Matrix (v0.3.0)
 
-*Last updated: 2026-11-24*
+*Last updated: 2026-11-26*
 
 Every cell uses one of three strict values:
 - **Verified**: Exercised end-to-end with recorded evidence in the stated scope.
@@ -9,11 +9,11 @@ Every cell uses one of three strict values:
 
 **Evidence discipline**: Passing unit tests or scripted simulations proves room logic only — it does **not** upgrade a real-agent row to **Verified**.
 
-## 1. Automated & Browser Verification Baseline (v0.2.0)
+## 1. Automated & Browser Verification Baseline (v0.3.0)
 
 Before reading the live-agent tables below, here is what is verified automatically on every build:
 
-- **Scripted-seat E2E & unit/mutation suite (Verified)**: `node test/e2e.mjs` (79/79 assertions) and `node --test "test/**/*.test.mjs"` verify the full governance loop (`Work`/`Meet`/`Summary`, artifact freeze, `stale` recomputation, `accept-stale`, authorized vs. non-reviewer verdicts, snapshot-isolated disclosure, malformed follow-up, pending item tables, superseded notices, `needs_reconcile` recovery, farewell packets), audit taint on unknown commands (`unknownCommands.length > 0`), `spawnClean` `AbortSignal` & POSIX process-group teardown, incremental `cmdWait` + `fs.watch`, POSIX `0o600` token files, English packet templates, SSE streaming (`/api/stream`, `/lobby/api/stream`), multi-room daemon auto-resume and `.bak` registry recovery, and all 8 `ROOM_MUTATE` fault-injection switches.
+- **Scripted-seat E2E & unit/mutation suite (Verified)**: `node test/e2e.mjs` (79/79 assertions) and `node --test "test/**/*.test.mjs"` verify the full governance loop (`Work`/`Meet`/`Summary`, artifact freeze, `stale` recomputation, `accept-stale`, authorized vs. non-reviewer verdicts, snapshot-isolated disclosure, malformed follow-up, pending item tables, superseded notices, `needs_reconcile` recovery, farewell packets), audit taint on unknown commands (`unknownCommands.length > 0`), `spawnClean` `AbortSignal` & POSIX process-group teardown, incremental `cmdWait` + `fs.watch`, POSIX `0o600` token files, English packet templates, SSE streaming (`/api/stream`, `/lobby/api/stream`), multi-room daemon auto-resume and `.bak` registry recovery, Windows npm vendor `codex.exe` resolution + `>= 0.157.0` queue version gate with candidate fallback, strictly read-only `room doctor`, `room demo`, `submit --file -` stdin piping, and all 8 `ROOM_MUTATE` fault-injection switches.
 - **Real browser UI smoke verification (Verified)**: Group-chat message rendering, Arena side-by-side mode, clickable `#seq` quote jumps, sticky Approval Inbox, Light / Dark theme toggle, SSE live updates, and negative XSS / forged-marker controls verified in a live browser against the room UI.
 - **Multi-agent live discussion trials (Partial — governance loop still Unverified)**: Real multi-seat discussion turns across Antigravity, Claude Code, and Codex CLI have been exercised on Windows 11. The full independent live-agent governance cycle (freeze -> external edit -> `stale` -> snapshot disclosure -> audit taint), long-running Claude Code background wait endurance, Codex Desktop interactive wake pushes, cross-restart live-agent daemon resume, and clean macOS/Linux host runs remain **Unverified**.
 
@@ -87,7 +87,7 @@ Built offline with `npm run app` (`node dist/build-app.mjs`) from a local cached
 [^dt-1]: Evidence from `codex exec` is not extrapolated to Codex Desktop interactive threads or Windows interactive Codex CLI.
 [^cc-1]: Bundled desktop `claude.exe -p` headless mode was unauthenticated; independent new-session Claude Code onboarding via `JOIN.md` has not been formally recorded end-to-end.
 [^cc-2]: Designed for Bash `run_in_background` (zero model calls while waiting) with foreground `wait --timeout 110` fallback; multi-hour idle cost and wakeup reliability are unverified.
-[^cc-3]: The room never pushes wakes to Claude Code; it wakes when its background `wait` command exits.
+[^cc-3]: Claude Code uses background `wait` by default (no wake push required); native cross-session socket waking is not shipped until verified against a live Claude Code session.
 [^cc-4]: Session-scoped transcript locator (`$CLAUDE_CONFIG_DIR/projects/<encoded-cwd>/`) ran against real transcript files (opening only 27 session files, skipping an active 42 MB sibling session), but has not been verified on an independent fresh session.
 [^cc-5]: Designed to trigger one permission prompt per `JOIN.md`'s single recommended `Bash(node <app>/room.mjs:*)` rule saved in `.claude/settings.local.json`.
 [^other]: Supported in seat kit generation (`JOIN.md`), but not yet verified in live end-to-end sessions. Note: DSH uploads session logs by default; `JOIN.md` discloses this limitation.

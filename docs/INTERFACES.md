@@ -1,6 +1,6 @@
 # INTERFACES: Module & Storage Contracts
 
-This document specifies the storage layout, event schema, CLI contracts, HTTP/SSE surfaces, and embedding interfaces for `AgentRoundtable` (`room-dev` v0.2.0). For design rationale and threat boundaries, see [`DESIGN.md`](DESIGN.md) and [`NON-INTERFERENCE.md`](NON-INTERFERENCE.md). If prose and contract ever diverge, this file is authoritative.
+This document specifies the storage layout, event schema, CLI contracts, HTTP/SSE surfaces, and embedding interfaces for `AgentRoundtable` (`room-dev` v0.3.0). For design rationale and threat boundaries, see [`DESIGN.md`](DESIGN.md) and [`NON-INTERFERENCE.md`](NON-INTERFERENCE.md). If prose and contract ever diverge, this file is authoritative.
 
 ## Core Invariants (Non-Interference Rules)
 
@@ -163,7 +163,7 @@ packet_resent {seatId, attemptId, packetId, path, manifestPath, sha256, bytes, r
 user_message_queued {msgSeq, text, sha256, deliverFromRound, immediate?}
 round_reopened {epoch, supersededSeqs:[...], phase, phases}
 attempt_expired {seatId, attemptId, hold?:true}
-wake_pushed {seatId, attemptId, thread, threadId?, by, roundId, turnKey, command_ok, detail, refused?:'THREAD_BUSY'|'IDLE_UNKNOWN', turn_observed}
+wake_pushed {seatId, attemptId, thread, threadId?, by, roundId, turnKey, command_ok, detail, refused?:'THREAD_BUSY'|'IDLE_UNKNOWN'|'CODEX_GATE_BLOCKED', turn_observed}
 seat_failed {seatId, attemptId, class:'rate_limited'|'quota_exhausted'|'auth_expired'|'crashed'|'denied'|'other', detail}
 usage_reported {seatId, attemptId, input, output, cached, source:'hosted'|'declared'|'audit'}
 farewell_issued {packetId, seats:[...]}
@@ -178,7 +178,7 @@ Notes on reduction and semantics:
 - `stale_accepted` covers only the exact `changed` diff snapshot inspected by the user; any subsequent edit marks the verdict `stale` again (`STALE_CHANGED_SINCE_ACCEPT`).
 - `point_added` from a voided/expired/reopened attempt is marked `voided` and excluded from the item table. `quote_submitted` against a superseded `seq` yields `verified: false, reason: 'superseded'`.
 - `user_message_queued.msgSeq` is the user-message sequence number (distinct from the event envelope `seq`).
-- `wake_pushed` with `refused: 'THREAD_BUSY' | 'IDLE_UNKNOWN'` indicates nothing was sent and does not count toward the per-turn wake budget `W`.
+- `wake_pushed` with `refused: 'THREAD_BUSY' | 'IDLE_UNKNOWN' | 'CODEX_GATE_BLOCKED'` indicates nothing was sent and does not count toward the per-turn wake budget `W`.
 - On service restart, any open attempt enters `needs_reconcile`; the seat receives `NEEDS_RECONCILE` until the user runs `admin reconcile <attemptId> replay|void`. On `replay`, if the seat outbox's `last-attempt.json` never recorded taking the attempt (`receipt: 'unknown'`), the service emits `packet_resent` with an idempotency note; otherwise it returns the original packet path.
 - Late submissions for a seat's own canceled/expired/voided/skipped attempt return `REJECTED STALE_ATTEMPT`; submissions for another seat's attempt return `NOT_YOUR_TURN`. Work reports with no frozen files carry `annotation: 'no_artifact'`; marks from non-lead seats carry `notes: [{code: 'mark_not_permitted', items}]`.
 
@@ -188,7 +188,7 @@ Seat commands import only `lib/seat.mjs` (never `lib/service.mjs`) and strip inh
 
 ```text
 wait [--timeout S] [--once]                                        -> TURN | TURN_OVER | NOT_YOUR_TURN | NOTICE ... | NEEDS_RECONCILE | ROOM_CLOSED | LEFT
-submit --file <path>                                               -> ACCEPTED [MALFORMED <reason>] | REJECTED <reason>
+submit --file <path|->                                             -> ACCEPTED [MALFORMED <reason>] | REJECTED <reason>
 status [--log] [--whoami]                                          -> STATUS ... (--whoami prints registered audit source & thread/session id)
 leave                                                              -> LEFT
 artifacts --declare <path>... [--baseline none|whole|<sha>] [--exclude <glob>] -> FROZEN manifest=<sha> files=<n>

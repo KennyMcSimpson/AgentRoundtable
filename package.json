@@ -1,6 +1,6 @@
 {
   "name": "agent-roundtable",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "license": "MIT",
   "description": "Governed multi-agent roundtable for the coding agents you already run: deterministic turn moderation, Work/Meet/Summary governance, artifact freeze & recompute, snapshot-isolated disclosure, native-log audit, group-chat & Arena UI, SSE multi-room daemon, zero runtime dependencies.",
   "type": "module",
@@ -8,6 +8,17 @@
     "agent-roundtable": "./room.mjs",
     "room-dev": "./room.mjs"
   },
+  "files": [
+    "room.mjs",
+    "lib/",
+    "ui/",
+    "skills/",
+    "docs/*.md",
+    "llms.txt",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
   "engines": {
     "node": ">=22"
   },
@@ -33,6 +44,8 @@
     "zero-dependencies"
   ],
   "scripts": {
+    "demo": "node room.mjs demo",
+    "doctor": "node room.mjs doctor",
     "test": "node --test \"test/**/*.test.mjs\"",
     "e2e": "node test/e2e.mjs",
     "daemon": "node room.mjs daemon",
